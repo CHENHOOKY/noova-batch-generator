@@ -34,6 +34,8 @@ class ModernAppShell(QMainWindow):
         self.setMinimumSize(900, 600)
 
         self._plugins = []
+        self._nav_plugin_buttons = []       # 侧边栏插件导航按钮
+        self._nav_plugin_section = None     # 插件导航区域容器
         self._stop_handler = None
         self.btn_start = None  # 由插件设置，用于恢复按钮状态
 
@@ -105,6 +107,23 @@ class ModernAppShell(QMainWindow):
         self.nav_home.clicked.connect(lambda: self.switch_page(0))
         side_layout.addWidget(self.nav_home)
 
+        # --- 插件导航区域（进入工作区后显示） ---
+        self._nav_plugin_section = QWidget()
+        plugin_nav_layout = QVBoxLayout(self._nav_plugin_section)
+        plugin_nav_layout.setContentsMargins(0, 4, 0, 4)
+        plugin_nav_layout.setSpacing(2)
+
+        sep = QLabel("  功能插件")
+        sep.setStyleSheet(
+            "color: #BBB; font-size: 11px; font-weight: 500; "
+            "padding: 4px 20px 2px 20px; background: transparent;")
+        plugin_nav_layout.addWidget(sep)
+
+        self._plugin_btn_container = QVBoxLayout()
+        self._plugin_btn_container.setSpacing(2)
+        plugin_nav_layout.addLayout(self._plugin_btn_container)
+        side_layout.addWidget(self._nav_plugin_section)
+
         self.nav_monitor = QPushButton("🚀 运行监控台")
         self.nav_monitor.setCheckable(True)
         self.nav_monitor.setProperty("class", "NavBtn")
@@ -157,9 +176,20 @@ class ModernAppShell(QMainWindow):
     def _register_plugin(self, plugin: BasePlugin):
         """将插件注册到主程序"""
         self._plugins.append(plugin)
-        # 工作区页面加入 stacked_widget，索引 = 当前 count（首页在 0，工作区从 1 开始）
+        # 工作区页面加入 stacked_widget
         ws = plugin.get_workspace()
         self.stacked_widget.addWidget(ws)
+        # 工作区索引 = 插件顺序 + 1（首页在 0，在 _build_home_page 中插入）
+        ws_index = len(self._plugins)
+
+        # 创建侧边栏导航按钮
+        nav_btn = QPushButton(f"  {plugin.icon}  {plugin.name}")
+        nav_btn.setCheckable(True)
+        nav_btn.setProperty("class", "NavBtn")
+        nav_btn.clicked.connect(
+            lambda checked=None, idx=ws_index: self.switch_page(idx))
+        self._plugin_btn_container.addWidget(nav_btn)
+        self._nav_plugin_buttons.append(nav_btn)
 
     # ═══════════════════════════════════════
     #  首页
@@ -275,6 +305,11 @@ class ModernAppShell(QMainWindow):
         mon_idx = self._monitor_index()
         self.nav_home.setChecked(index == 0)
         self.nav_monitor.setChecked(index == mon_idx)
+
+        # 高亮当前插件按钮
+        for i, btn in enumerate(self._nav_plugin_buttons):
+            btn.setChecked(index == i + 1)
+
         self.stacked_widget.setCurrentIndex(index)
 
     def switch_to_monitor(self):
