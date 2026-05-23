@@ -50,45 +50,45 @@ class BasePlugin:
     def create_card(self) -> QPushButton:
         """创建首页卡片（默认实现基于 metadata 自动生成）"""
         card = QPushButton()
-        card.setMinimumHeight(200)
+        card.setMinimumHeight(180)
         card.setCursor(Qt.PointingHandCursor)
         card.setStyleSheet(f"""
             QPushButton {{
                 background-color: #FFFFFF;
-                border: 1px solid #EEEEEE;
-                border-radius: 16px;
+                border: 1px solid #ECEDF0;
+                border-radius: 14px;
                 text-align: left;
                 padding: 0px;
             }}
             QPushButton:hover {{
-                border: 1px solid {self.color};
+                border: 2px solid {self.color};
                 background-color: #FAFAFE;
             }}
         """)
 
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(16)
-        shadow.setColor(QColor(0, 0, 0, 15))
-        shadow.setOffset(0, 2)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 20))
+        shadow.setOffset(0, 4)
         card.setGraphicsEffect(shadow)
 
         inner = QVBoxLayout(card)
         inner.setContentsMargins(28, 24, 28, 24)
-        inner.setSpacing(12)
+        inner.setSpacing(10)
 
         icon_lbl = QLabel(self.icon)
-        icon_lbl.setStyleSheet("font-size: 36px; background: transparent;")
+        icon_lbl.setStyleSheet("font-size: 40px; background: transparent;")
         inner.addWidget(icon_lbl)
 
         title_lbl = QLabel(self.name)
         title_lbl.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #1A1A1A; background: transparent;"
+            "font-size: 16px; font-weight: 700; color: #1E1E2E; background: transparent;"
         )
         inner.addWidget(title_lbl)
 
         desc_lbl = QLabel(self.description)
         desc_lbl.setStyleSheet(
-            "font-size: 13px; color: #888888; line-height: 1.6; background: transparent;"
+            "font-size: 12px; color: #6B7280; line-height: 1.5; background: transparent;"
         )
         desc_lbl.setWordWrap(True)
         inner.addWidget(desc_lbl)

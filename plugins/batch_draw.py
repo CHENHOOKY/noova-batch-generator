@@ -1,21 +1,20 @@
 """批量出图插件 —— 完全独立的功能模块
 
 包含:
-  - NoovaAPI:       与 Noova AI 绘图 API 通信
   - ExcelProcessor: 解析 Excel，提取提示词与参考图
   - BatchDrawWorker: 并发任务处理线程
   - BatchDrawPlugin: 插件入口（卡片 + 工作区 UI + 任务调度）
 
+API 通信层由 plugins._noova_api 共享提供。
 删除此文件不会影响主程序及其他插件。
 """
 
 import os
 import re
-import time
 import threading
-import requests
+from typing import List, Dict
+
 import pandas as pd
-from typing import List, Dict, Tuple
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame, QScrollArea,
@@ -25,118 +24,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 
 from plugin_base import BasePlugin
-
-
-# ═══════════════════════════════════════════
-#  API 通信层
-# ═══════════════════════════════════════════
-class NoovaAPI:
-    BASE_URL = "https://noova.cn"
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key.strip()
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-    def local_file_to_base64(self, filepath: str, log_callback=None) -> str:
-        import base64
-        import io
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"本地文件不存在: {filepath}")
-
-        try:
-            from PIL import Image
-            img = Image.open(filepath)
-            fmt = img.format
-            if log_callback:
-                log_callback(f"  -> 图片格式: {fmt}, 尺寸: {img.size}")
-
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
-
-            max_dim = 2048
-            w, h = img.size
-            if max(w, h) > max_dim:
-                ratio = max_dim / max(w, h)
-                img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-                if log_callback:
-                    log_callback(f"  -> 已缩放至: {img.size}")
-
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
-            if log_callback:
-                log_callback(f"  -> base64 编码完成, 长度: {len(b64_str)}")
-            return b64_str
-        except ImportError:
-            with open(filepath, "rb") as f:
-                raw = f.read()
-            return base64.b64encode(raw).decode("utf-8")
-
-    def create_draw_task(self, model: str, prompt: str, aspect_ratio: str,
-                         image_size: str, urls: List[str]) -> Tuple[str, dict]:
-        payload = {"model": model, "prompt": prompt, "imageSize": image_size,
-                    "aspectRatio": aspect_ratio}
-        if urls:
-            payload["urls"] = urls
-
-        create_url = f"{self.BASE_URL}/v1/draw/completions"
-        resp = requests.post(create_url, headers=self.headers, json=payload, timeout=60)
-        resp.raise_for_status()
-        try:
-            created = resp.json()
-        except Exception:
-            raise RuntimeError(
-                f"API 返回非 JSON 内容 (status={resp.status_code}): {resp.text[:500]}")
-        data = created.get("data") or {}
-        task_id = data.get("id")
-        if not task_id:
-            raise RuntimeError(f"未返回任务 ID: {created}")
-        return task_id, created
-
-    def poll_task_result(self, task_id: str, poll_interval: int, log_callback) -> dict:
-        poll_url = f"{self.BASE_URL}/v1/draw/result"
-        for _ in range(180):
-            time.sleep(poll_interval)
-            for retry in range(3):
-                try:
-                    resp = requests.post(poll_url, headers=self.headers,
-                                         json={"id": task_id}, timeout=60)
-                    resp.raise_for_status()
-                    break
-                except requests.exceptions.HTTPError as e:
-                    if e.response is not None and e.response.status_code == 429:
-                        wait = 2 ** (retry + 1)
-                        log_callback(f"请求过于频繁，{wait}s 后重试...")
-                        time.sleep(wait)
-                        continue
-                    raise
-            else:
-                raise RuntimeError("轮询请求连续失败：429 限流")
-
-            try:
-                current = resp.json()
-            except Exception:
-                raise RuntimeError(
-                    f"轮询 API 返回非 JSON 内容 (status={resp.status_code}): {resp.text[:500]}")
-
-            data = current.get("data") or {}
-            status = str(data.get("status") or "")
-            progress = data.get("progress", 0)
-            log_callback(f"任务状态: {status} (进度: {progress}%)")
-
-            if status in {"succeeded", "failed", "violation", "cancelled"}:
-                break
-        return current
-
-    def download_image(self, url: str, save_path: str):
-        resp = requests.get(url, stream=True)
-        resp.raise_for_status()
-        with open(save_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
+from plugins._noova_api import NoovaAPI, MODEL_CONFIG, MAX_IMAGE_DIM, MAX_CONCURRENCY
 
 
 # ═══════════════════════════════════════════
@@ -190,7 +78,8 @@ class ExcelProcessor:
         return dispimg_mapping
 
     @staticmethod
-    def extract_floating_images(filepath: str, extract_dir: str) -> Dict[int, List[str]]:
+    def extract_floating_images(filepath: str, extract_dir: str,
+                                 log_callback=None) -> Dict[int, List[str]]:
         floating_mapping = {}
         try:
             import openpyxl
@@ -213,8 +102,9 @@ class ExcelProcessor:
                     if row not in floating_mapping:
                         floating_mapping[row] = []
                     floating_mapping[row].append(img_path)
-        except Exception:
-            pass
+        except Exception as e:
+            if log_callback:
+                log_callback(f"  -> 浮动图提取失败: {e}")
         return floating_mapping
 
     @staticmethod
@@ -224,7 +114,8 @@ class ExcelProcessor:
 
         log_callback("🔍 正在深度扫描并提取 Excel 内嵌图片(此过程可能需要几秒钟)...")
         dispimg_mapping = ExcelProcessor.extract_dispimg_from_zip(filepath, extract_dir)
-        floating_mapping = ExcelProcessor.extract_floating_images(filepath, extract_dir)
+        floating_mapping = ExcelProcessor.extract_floating_images(
+            filepath, extract_dir, log_callback)
 
         if dispimg_mapping or floating_mapping:
             log_callback(
@@ -286,6 +177,7 @@ class BatchDrawWorker(QThread):
         self.poll_interval = poll_interval
         self.concurrency = concurrency
         self.is_running = True
+        self._executor = None
         self._lock = threading.Lock()
         self._completed = 0
         self._total = 0
@@ -327,7 +219,8 @@ class BatchDrawWorker(QThread):
                 self.model, prompt, self.aspect_ratio, self.image_size, processed_urls)
 
             result_data = api.poll_task_result(task_id, self.poll_interval,
-                                               self.log_msg.emit)
+                                               self.log_msg.emit,
+                                               cancel_check=lambda: not self.is_running)
             status = str((result_data.get("data") or {}).get("status") or "")
 
             if status == "succeeded":
@@ -366,6 +259,7 @@ class BatchDrawWorker(QThread):
 
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
+                self._executor = executor
                 futures = [executor.submit(self._process_task, t) for t in tasks]
                 for future in as_completed(futures):
                     if not self.is_running:
@@ -378,13 +272,27 @@ class BatchDrawWorker(QThread):
                         pass
 
             self.log_msg.emit("\n🎉 全部任务处理完毕！")
+            self._cleanup_temp()
             self.finished_task.emit(True)
         except Exception as e:
             self.log_msg.emit(f"\n系统发生错误: {str(e)}")
+            self._cleanup_temp()
             self.finished_task.emit(False)
+
+    def _cleanup_temp(self):
+        import shutil
+        extract_dir = os.path.join(self.output_dir, ".noova_extracted_images")
+        if os.path.isdir(extract_dir):
+            try:
+                shutil.rmtree(extract_dir)
+            except OSError:
+                pass
 
     def stop(self):
         self.is_running = False
+        if self._executor:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
 
 
 # ═══════════════════════════════════════════
@@ -398,35 +306,6 @@ class BatchDrawPlugin(BasePlugin):
     description = ("导入 Excel 表格，自动解析提示词与参考图，"
                    "批量调用 AI 模型生成高质量图片。\n"
                    "支持 gpt-image-2 / nano-banana 全系列模型。")
-
-    # 模型配置
-    MODEL_CONFIG = {
-        "gpt-image-2": {
-            "ratios": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
-                       "5:4", "4:5", "21:9", "9:21", "1:2", "2:1"],
-            "sizes": ["1K"],
-        },
-        "nano-banana-pro": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-        "nano-banana-2": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9", "1:4", "4:1", "1:8", "8:1"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-        "nano-banana-fast": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-        "nano-banana": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-    }
 
     def __init__(self):
         super().__init__()
@@ -446,12 +325,14 @@ class BatchDrawPlugin(BasePlugin):
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(60, 40, 60, 50)
+        layout.setContentsMargins(56, 44, 56, 52)
 
         # 返回按钮
         back_btn = QPushButton("← 返回首页")
         back_btn.setStyleSheet(
-            "background: transparent; border: none; color: #666; font-size: 14px; padding: 4px 0;")
+            "QPushButton { background: transparent; border: none; color: #6B7280;"
+            " font-size: 14px; padding: 6px 0; }"
+            "QPushButton:hover { color: #6366F1; }")
         back_btn.setCursor(Qt.PointingHandCursor)
         back_btn.clicked.connect(lambda: self.main_window.switch_page(0))
         layout.addWidget(back_btn)
@@ -460,9 +341,9 @@ class BatchDrawPlugin(BasePlugin):
         # 标题
         title = QLabel(f"{self.icon} {self.name}")
         title.setStyleSheet(
-            "font-size: 28px; font-weight: bold; color: #1A1A1A; background: transparent;")
+            "font-size: 28px; font-weight: 700; color: #1E1E2E; background: transparent;")
         subtitle = QLabel("导入 Excel 文件，自动解析提示词并批量调用 AI 生成图片")
-        subtitle.setStyleSheet("font-size: 14px; color: #999; background: transparent;")
+        subtitle.setStyleSheet("font-size: 14px; color: #6B7280; background: transparent;")
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addSpacing(32)
@@ -470,7 +351,7 @@ class BatchDrawPlugin(BasePlugin):
         # === 设置表单 ===
         form_card = QFrame()
         form_card.setStyleSheet(
-            "QFrame { background: #FFFFFF; border-radius: 16px; border: 1px solid #EEEEEE; }")
+            "QFrame { background: #FFFFFF; border-radius: 14px; border: 1px solid #ECEDF0; }")
         form_layout = QFormLayout(form_card)
         form_layout.setContentsMargins(32, 28, 32, 28)
         form_layout.setSpacing(16)
@@ -480,9 +361,13 @@ class BatchDrawPlugin(BasePlugin):
         self.input_api.setPlaceholderText("在此粘贴您的 sk- 开头的 API Key")
         self.input_api.setEchoMode(QLineEdit.Password)
         self.input_api.setText(os.environ.get("NOOVA_API_KEY", ""))
+        self.input_api.setStyleSheet(
+            "QLineEdit { border: 1px solid #E5E7EB; border-radius: 10px;"
+            " padding: 10px 14px; font-size: 14px; background: #FAFAFA; }"
+            "QLineEdit:focus { border: 1px solid #6366F1; background: #FFFFFF; }")
 
         self.combo_model = QComboBox()
-        self.combo_model.addItems(list(self.MODEL_CONFIG.keys()))
+        self.combo_model.addItems(list(MODEL_CONFIG.keys()))
 
         self.combo_ar = QComboBox()
         self.combo_size = QComboBox()
@@ -495,7 +380,7 @@ class BatchDrawPlugin(BasePlugin):
 
         self.spin_concurrency = QSpinBox()
         self.spin_concurrency.setMinimum(1)
-        self.spin_concurrency.setMaximum(10)
+        self.spin_concurrency.setMaximum(MAX_CONCURRENCY)
         self.spin_concurrency.setValue(1)
         self.spin_concurrency.setSuffix(" 个任务")
 
@@ -515,7 +400,7 @@ class BatchDrawPlugin(BasePlugin):
         # === 文件选择 ===
         file_card = QFrame()
         file_card.setStyleSheet(
-            "QFrame { background: #FFFFFF; border-radius: 16px; border: 1px solid #EEEEEE; }")
+            "QFrame { background: #FFFFFF; border-radius: 14px; border: 1px solid #ECEDF0; }")
         file_inner = QVBoxLayout(file_card)
         file_inner.setContentsMargins(32, 24, 32, 24)
         file_inner.setSpacing(16)
@@ -587,9 +472,9 @@ class BatchDrawPlugin(BasePlugin):
     # ---- 事件处理 ----
 
     def _on_model_changed(self, model_name):
-        if model_name not in self.MODEL_CONFIG:
+        if model_name not in MODEL_CONFIG:
             return
-        config = self.MODEL_CONFIG[model_name]
+        config = MODEL_CONFIG[model_name]
         self.combo_ar.clear()
         self.combo_ar.addItems(config["ratios"])
         self.combo_size.clear()
@@ -614,6 +499,9 @@ class BatchDrawPlugin(BasePlugin):
                 "color: #333; font-size: 13px; background: transparent;")
 
     def _start_task(self):
+        if self._worker and self._worker.isRunning():
+            QMessageBox.information(self.main_window, "提示", "有任务正在运行，请先终止或等待完成")
+            return
         api_key = self.input_api.text().strip()
         if not api_key:
             QMessageBox.warning(self.main_window, "提示", "请填写 API Key！")
@@ -642,8 +530,7 @@ class BatchDrawPlugin(BasePlugin):
         mw = self.main_window
         mw.monitor_clear()
         mw.monitor_set_running(True)
-        mw.btn_start = self.btn_start  # 让主窗口能恢复按钮状态
-        mw.set_stop_handler(self._stop_task)
+        mw.stop_requested.connect(self._stop_task)
         mw.switch_to_monitor()
 
         self.btn_start.setDisabled(True)
@@ -658,6 +545,10 @@ class BatchDrawPlugin(BasePlugin):
     def _on_worker_finished(self, success):
         self.main_window.monitor_set_running(False)
         self.btn_start.setDisabled(False)
+        try:
+            self.main_window.stop_requested.disconnect(self._stop_task)
+        except TypeError:
+            pass
         if success:
             QMessageBox.information(self.main_window, "完成", "所有任务已处理完毕！")
 

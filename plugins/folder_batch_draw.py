@@ -12,10 +12,8 @@
 
 import os
 import re
-import time
 import threading
-import requests
-from typing import List, Tuple
+from typing import List
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame, QScrollArea,
@@ -25,8 +23,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 
 from plugin_base import BasePlugin
+from plugins._noova_api import NoovaAPI, MODEL_CONFIG, MAX_CONCURRENCY
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp'}
+GROUP_COUNT = 10
 
 # Unicode 圆形数字 ①~⑩
 CIRCLED_NUMBERS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"]
@@ -64,119 +64,6 @@ def scan_folder_images(folder: str) -> List[str]:
 
 
 # ═══════════════════════════════════════════
-#  API 通信层
-# ═══════════════════════════════════════════
-class NoovaAPI:
-    BASE_URL = "https://noova.cn"
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key.strip()
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-    def local_file_to_base64(self, filepath: str, log_callback=None) -> str:
-        import base64
-        import io
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"本地文件不存在: {filepath}")
-
-        try:
-            from PIL import Image
-            img = Image.open(filepath)
-            fmt = img.format
-            if log_callback:
-                log_callback(f"      格式: {fmt}, 尺寸: {img.size}")
-
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
-
-            max_dim = 2048
-            w, h = img.size
-            if max(w, h) > max_dim:
-                ratio = max_dim / max(w, h)
-                img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-                if log_callback:
-                    log_callback(f"      已缩放至: {img.size}")
-
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
-            if log_callback:
-                log_callback(f"      base64 编码完成, 长度: {len(b64_str)}")
-            return b64_str
-        except ImportError:
-            with open(filepath, "rb") as f:
-                raw = f.read()
-            return base64.b64encode(raw).decode("utf-8")
-
-    def create_draw_task(self, model: str, prompt: str, aspect_ratio: str,
-                         image_size: str, urls: List[str]) -> Tuple[str, dict]:
-        payload = {"model": model, "prompt": prompt, "imageSize": image_size,
-                    "aspectRatio": aspect_ratio}
-        if urls:
-            payload["urls"] = urls
-
-        create_url = f"{self.BASE_URL}/v1/draw/completions"
-        resp = requests.post(create_url, headers=self.headers, json=payload, timeout=60)
-        resp.raise_for_status()
-        try:
-            created = resp.json()
-        except Exception:
-            raise RuntimeError(
-                f"API 返回非 JSON 内容 (status={resp.status_code}): {resp.text[:500]}")
-        data = created.get("data") or {}
-        task_id = data.get("id")
-        if not task_id:
-            raise RuntimeError(f"未返回任务 ID: {created}")
-        return task_id, created
-
-    def poll_task_result(self, task_id: str, poll_interval: int, log_callback) -> dict:
-        poll_url = f"{self.BASE_URL}/v1/draw/result"
-        for _ in range(180):
-            time.sleep(poll_interval)
-            for retry in range(3):
-                try:
-                    resp = requests.post(poll_url, headers=self.headers,
-                                         json={"id": task_id}, timeout=60)
-                    resp.raise_for_status()
-                    break
-                except requests.exceptions.HTTPError as e:
-                    if e.response is not None and e.response.status_code == 429:
-                        wait = 2 ** (retry + 1)
-                        log_callback(f"  请求过于频繁，{wait}s 后重试...")
-                        time.sleep(wait)
-                        continue
-                    raise
-            else:
-                raise RuntimeError("轮询请求连续失败：429 限流")
-
-            try:
-                current = resp.json()
-            except Exception:
-                raise RuntimeError(
-                    f"轮询 API 返回非 JSON 内容 (status={resp.status_code}): "
-                    f"{resp.text[:500]}")
-
-            data = current.get("data") or {}
-            status = str(data.get("status") or "")
-            progress = data.get("progress", 0)
-            log_callback(f"  任务状态: {status} (进度: {progress}%)")
-
-            if status in {"succeeded", "failed", "violation", "cancelled"}:
-                break
-        return current
-
-    def download_image(self, url: str, save_path: str):
-        resp = requests.get(url, stream=True)
-        resp.raise_for_status()
-        with open(save_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-
-# ═══════════════════════════════════════════
 #  后台工作线程
 # ═══════════════════════════════════════════
 class FolderBatchDrawWorker(QThread):
@@ -197,6 +84,7 @@ class FolderBatchDrawWorker(QThread):
         self.poll_interval = poll_interval
         self.concurrency = concurrency
         self.is_running = True
+        self._executor = None
         self._lock = threading.Lock()
         self._completed = 0
         self._total = 0
@@ -240,8 +128,9 @@ class FolderBatchDrawWorker(QThread):
                 self.model, prompt, self.aspect_ratio, self.image_size, [b64])
 
             # 3. 轮询
-            result_data = api.poll_task_result(task_id, self.poll_interval,
-                                               self.log_msg.emit)
+            result_data = api.poll_task_result(
+                task_id, self.poll_interval, self.log_msg.emit,
+                cancel_check=lambda: not self.is_running)
             status = str((result_data.get("data") or {}).get("status") or "")
 
             if status == "succeeded":
@@ -316,6 +205,7 @@ class FolderBatchDrawWorker(QThread):
             else:
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
+                    self._executor = executor
                     futures = [executor.submit(self._process_image, t)
                                for t in all_tasks]
                     for future in as_completed(futures):
@@ -336,6 +226,9 @@ class FolderBatchDrawWorker(QThread):
 
     def stop(self):
         self.is_running = False
+        if self._executor:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
 
 
 # ═══════════════════════════════════════════
@@ -349,33 +242,6 @@ class FolderBatchDrawPlugin(BasePlugin):
     description = ("从文件夹逐张读取参考图，按提示词分组批量生成。\n"
                    "每组一张图片 = 一次 API 调用，输出按组分文件夹存放。")
 
-    MODEL_CONFIG = {
-        "gpt-image-2": {
-            "ratios": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
-                       "5:4", "4:5", "21:9", "9:21", "1:2", "2:1"],
-            "sizes": ["1K"],
-        },
-        "nano-banana-pro": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-        "nano-banana-2": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9", "1:4", "4:1", "1:8", "8:1"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-        "nano-banana-fast": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-        "nano-banana": {
-            "ratios": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2",
-                       "2:3", "5:4", "4:5", "21:9"],
-            "sizes": ["1K", "2K", "4K"],
-        },
-    }
 
     def __init__(self):
         super().__init__()
@@ -383,7 +249,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         self.output_path = ""
         self.group_prompts: List[QLineEdit] = []
         self.group_folder_labels: List[QLabel] = []
-        self.group_folder_paths: List[str] = [""] * 10
+        self.group_folder_paths: List[str] = [""] * GROUP_COUNT
         self.group_cards: List[QFrame] = []
 
     # ---- 工作区 UI ----
@@ -398,14 +264,15 @@ class FolderBatchDrawPlugin(BasePlugin):
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         outer = QVBoxLayout(content)
-        outer.setContentsMargins(48, 36, 48, 48)
+        outer.setContentsMargins(56, 44, 56, 52)
 
         # --- 顶栏 ---
         top_bar = QHBoxLayout()
         back_btn = QPushButton("← 返回首页")
         back_btn.setStyleSheet(
-            "background: transparent; border: none; color: #888; font-size: 13px; "
-            "padding: 4px 8px;")
+            "QPushButton { background: transparent; border: none; color: #6B7280;"
+            " font-size: 14px; padding: 6px 0; }"
+            "QPushButton:hover { color: #6366F1; }")
         back_btn.setCursor(Qt.PointingHandCursor)
         back_btn.clicked.connect(lambda: self.main_window.switch_page(0))
         top_bar.addWidget(back_btn)
@@ -416,9 +283,9 @@ class FolderBatchDrawPlugin(BasePlugin):
         # --- 标题区 ---
         title = QLabel(f"{self.icon} {self.name}")
         title.setStyleSheet(
-            "font-size: 26px; font-weight: bold; color: #1A1A1A; background: transparent;")
+            "font-size: 28px; font-weight: 700; color: #1E1E2E; background: transparent;")
         subtitle = QLabel("每组填写提示词并选择参考图文件夹，每张图片独立生成，结果按组输出")
-        subtitle.setStyleSheet("font-size: 13px; color: #999; background: transparent;")
+        subtitle.setStyleSheet("font-size: 14px; color: #6B7280; background: transparent;")
         outer.addWidget(title)
         outer.addWidget(subtitle)
         outer.addSpacing(28)
@@ -435,7 +302,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         settings_card = QFrame()
         settings_card.setStyleSheet(
             "QFrame#SettingsCard { background: #FFFFFF; border-radius: 14px; "
-            "border: 1px solid #EEEEEE; }")
+            "border: 1px solid #ECEDF0; }")
         settings_card.setObjectName("SettingsCard")
         settings_card.setFixedWidth(340)
         sf = QFormLayout(settings_card)
@@ -453,9 +320,13 @@ class FolderBatchDrawPlugin(BasePlugin):
         self.input_api.setPlaceholderText("sk-...")
         self.input_api.setEchoMode(QLineEdit.Password)
         self.input_api.setText(os.environ.get("NOOVA_API_KEY", ""))
+        self.input_api.setStyleSheet(
+            "QLineEdit { border: 1px solid #E5E7EB; border-radius: 10px;"
+            " padding: 10px 14px; font-size: 14px; background: #FAFAFA; }"
+            "QLineEdit:focus { border: 1px solid #6366F1; background: #FFFFFF; }")
 
         self.combo_model = QComboBox()
-        self.combo_model.addItems(list(self.MODEL_CONFIG.keys()))
+        self.combo_model.addItems(list(MODEL_CONFIG.keys()))
 
         self.combo_ar = QComboBox()
         self.combo_size = QComboBox()
@@ -468,7 +339,7 @@ class FolderBatchDrawPlugin(BasePlugin):
 
         self.spin_concurrency = QSpinBox()
         self.spin_concurrency.setMinimum(1)
-        self.spin_concurrency.setMaximum(10)
+        self.spin_concurrency.setMaximum(MAX_CONCURRENCY)
         self.spin_concurrency.setValue(1)
         self.spin_concurrency.setSuffix(" 个")
 
@@ -488,7 +359,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         out_card = QFrame()
         out_card.setStyleSheet(
             "QFrame#OutCard { background: #FFFFFF; border-radius: 14px; "
-            "border: 1px solid #EEEEEE; }")
+            "border: 1px solid #ECEDF0; }")
         out_card.setObjectName("OutCard")
         out_card.setFixedWidth(340)
         out_inner = QVBoxLayout(out_card)
@@ -530,7 +401,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         groups_title = QLabel("📋 提示词组")
         groups_title.setStyleSheet(
             "font-size: 16px; font-weight: bold; color: #1A1A1A; background: transparent;")
-        groups_hint = QLabel("最多 10 组")
+        groups_hint = QLabel(f"最多 {GROUP_COUNT} 组")
         groups_hint.setStyleSheet("font-size: 12px; color: #BBB; background: transparent;")
         groups_header.addWidget(groups_title)
         groups_header.addWidget(groups_hint)
@@ -539,7 +410,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         right_col.addSpacing(4)
 
         # 每组的卡片
-        for i in range(10):
+        for i in range(GROUP_COUNT):
             group_card = self._build_group_card(i)
             self.group_cards.append(group_card)
             right_col.addWidget(group_card)
@@ -642,7 +513,7 @@ class FolderBatchDrawPlugin(BasePlugin):
     # ---- 事件处理 ----
 
     def _on_model_changed(self, model_name):
-        config = self.MODEL_CONFIG.get(model_name, {})
+        config = MODEL_CONFIG.get(model_name, {})
         self.combo_ar.clear()
         self.combo_ar.addItems(config.get("ratios", []))
         self.combo_size.clear()
@@ -679,13 +550,17 @@ class FolderBatchDrawPlugin(BasePlugin):
                 "color: #10B981; font-size: 12px; background: transparent;")
 
     def _start_task(self):
+        if self._worker and self._worker.isRunning():
+            QMessageBox.information(self.main_window, "提示", "有任务正在运行，请先终止或等待完成")
+            return
+
         api_key = self.input_api.text().strip()
         if not api_key:
             QMessageBox.warning(self.main_window, "提示", "请填写 API Key！")
             return
 
         groups = []
-        for i in range(10):
+        for i in range(GROUP_COUNT):
             prompt = self.group_prompts[i].text().strip()
             folder = self.group_folder_paths[i]
             groups.append({"prompt": prompt, "folder": folder})
@@ -717,7 +592,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         mw = self.main_window
         mw.monitor_clear()
         mw.monitor_set_running(True)
-        mw.set_stop_handler(self._stop_task)
+        mw.stop_requested.connect(self._stop_task)
         mw.switch_to_monitor()
 
         self.btn_start.setDisabled(True)
@@ -726,6 +601,10 @@ class FolderBatchDrawPlugin(BasePlugin):
     def _on_worker_finished(self, success):
         self.main_window.monitor_set_running(False)
         self.btn_start.setDisabled(False)
+        try:
+            self.main_window.stop_requested.disconnect(self._stop_task)
+        except TypeError:
+            pass
         if success:
             QMessageBox.information(self.main_window, "完成", "所有图片任务已处理完毕！")
 

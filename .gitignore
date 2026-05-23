@@ -8,7 +8,7 @@ __pycache__/
 dist/
 build/
 *.egg
-*.spec
+*.spec.bak
 
 # ======================
 # 虚拟环境
@@ -41,6 +41,8 @@ credentials.json
 .noova_extracted_images/
 output/
 *.exe
+models_tmp/
+.claude/
 
 # ======================
 # 系统文件
