@@ -1555,6 +1555,8 @@ class PPTGenerateWorker(QThread):
 
             safe_name = _sanitize_filename(slide_title)
             filepath = svg_dir / f"{page_num:02d}_{safe_name}.svg"
+            # 防御性确保父目录存在（防止某些边界条件下目录丢失）
+            filepath.parent.mkdir(parents=True, exist_ok=True)
             filepath.write_text(svg, encoding="utf-8")
 
             # Write speaker notes if present
