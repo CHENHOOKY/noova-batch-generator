@@ -19,11 +19,16 @@ a = Analysis(
         'plugins.batch_draw',
         'plugins.folder_batch_draw',
         'plugins.upscale',
+        'plugins.ppt_master',
         # 插件依赖的三方库
         'pandas',
         'PIL',
         'cv2',
         'openpyxl',
+        # ppt-master (PPT 大师插件)
+        'pptx',
+        'svglib',
+        'reportlab',
         # main.py 使用 pkgutil.iter_modules 动态发现插件
         'pkgutil',
     ],

@@ -573,6 +573,14 @@ class UpscalePlugin(BasePlugin):
         self._worker.progress_update.connect(self._on_progress)
         self._worker.finished_task.connect(self._on_finished)
 
+        # 连接共享监视器停止信号
+        mw = self.main_window
+        if mw:
+            try:
+                mw.stop_requested.connect(self._cancel)
+            except (TypeError, RuntimeError):
+                pass
+
         self._btn_start.setVisible(False)
         self._btn_cancel.setVisible(True)
         self._progress_bar.setVisible(True)
@@ -585,8 +593,14 @@ class UpscalePlugin(BasePlugin):
     def _cancel(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            self._worker.quit()
-            self._worker.wait(3000)
+            self._worker.wait(100)
+        # 断开共享监视器
+        mw = self.main_window
+        if mw:
+            try:
+                mw.stop_requested.disconnect(self._cancel)
+            except (TypeError, RuntimeError):
+                pass
         self._reset_ui()
 
     def _log(self, text: str):
@@ -600,6 +614,13 @@ class UpscalePlugin(BasePlugin):
         self._info_label.setText(f"处理进度：{current} / {total}")
 
     def _on_finished(self, success: bool):
+        # 断开共享监视器
+        mw = self.main_window
+        if mw:
+            try:
+                mw.stop_requested.disconnect(self._cancel)
+            except (TypeError, RuntimeError):
+                pass
         self._reset_ui()
         if success:
             self._btn_open_output.setVisible(True)

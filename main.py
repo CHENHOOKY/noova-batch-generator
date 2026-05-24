@@ -11,7 +11,6 @@
 
 __version__ = "2.1.0"
 
-import os
 import sys
 import importlib
 from pathlib import Path
@@ -66,6 +65,7 @@ class ModernAppShell(QMainWindow):
         self._load_plugins()
         self._build_home_page()
         self._build_monitor_page()
+        self.stacked_widget.setCurrentIndex(0)
 
     # ═══════════════════════  全局样式  ═══════════════════════
     def _init_styles(self):

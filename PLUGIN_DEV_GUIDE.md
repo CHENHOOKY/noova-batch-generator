@@ -309,11 +309,11 @@ self.main_window.monitor_set_running(True)
 
 ### 4.3 停止按钮
 
-监控台提供了一个红色的"终止任务"按钮。你需要告诉主程序按下它时做什么：
+监控台提供了一个红色的"终止任务"按钮。你需要连接主程序的 `stop_requested` Signal 来响应它：
 
 ```python
-# 在 _start_task 或类似方法中注册停止回调
-self.main_window.set_stop_handler(self._stop_task)
+# 在 _start_task 或类似方法中连接停止信号
+self.main_window.stop_requested.connect(self._stop_task)
 
 def _stop_task(self):
     """用户点击了监控台的"终止任务"按钮"""
@@ -331,8 +331,7 @@ def _stop_task(self):
 | `monitor_log(text: str)` | 追加日志到监控台 |
 | `monitor_progress(current: int, total: int)` | 更新进度条百分比 |
 | `monitor_set_running(running: bool)` | 显示/隐藏停止按钮 |
-| `set_stop_handler(handler)` | 注册停止按钮回调函数 |
-| `btn_stop` | 停止按钮控件（可直接 `.clicked.connect(...)`） |
+| `stop_requested` | Signal — 连接你的取消处理函数 |
 
 ---
 
@@ -407,7 +406,7 @@ class MyPlugin(BasePlugin):
         # 4. 设置监控台状态
         self.main_window.monitor_clear()
         self.main_window.monitor_set_running(True)
-        self.main_window.set_stop_handler(self._stop)
+        self.main_window.stop_requested.connect(self._stop)
 
         # 5. 切换到监控台
         self.main_window.switch_to_monitor()
