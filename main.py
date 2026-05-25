@@ -9,7 +9,7 @@
 删除插件：直接删除对应 .py 文件，不影响任何其他功能。
 """
 
-__version__ = "2.1.0"
+__version__ = "2.4.0"
 
 import sys
 import importlib
