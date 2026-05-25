@@ -2178,7 +2178,7 @@ class PPTMasterPlugin(BasePlugin):
         self._api_content: QFrame | None = None
         self._input_api: QLineEdit | None = None
         self._model_combo: QComboBox | None = None
-        self._base_url_input: QLineEdit | None = None
+
         self._prompt_input: QTextEdit | None = None
         self._prompt_count: QLabel | None = None
         self._custom_style_input: QTextEdit | None = None
@@ -2366,19 +2366,6 @@ class PPTMasterPlugin(BasePlugin):
         self._combo_style(self._model_combo)
         ml_col.addWidget(self._model_combo)
         mrow.addLayout(ml_col, 1)
-        # Base URL
-        bu_col = QVBoxLayout()
-        bu_col.setSpacing(4)
-        bu_lbl = QLabel("Base URL")
-        bu_lbl.setStyleSheet(
-            "font-size: 12px; font-weight: 600; color: " + C_TEXT_SUB
-            + "; background: transparent;")
-        bu_col.addWidget(bu_lbl)
-        self._base_url_input = QLineEdit()
-        self._base_url_input.setText(DS_BASE_URL)
-        self._input_style(self._base_url_input)
-        bu_col.addWidget(self._base_url_input)
-        mrow.addLayout(bu_col, 2)
         ac.addLayout(mrow)
 
         wl.addWidget(self._api_content)
@@ -2859,7 +2846,7 @@ class PPTMasterPlugin(BasePlugin):
                 return
             self._log_append("[OK] 依赖安装完成\n")
 
-        base_url = self._base_url_input.text().strip() or DS_BASE_URL
+        base_url = DS_BASE_URL
         model = self._model_combo.currentText().strip()
         if not model:
             model = DS_MODELS[0]

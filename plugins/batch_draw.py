@@ -366,11 +366,25 @@ class BatchDrawPlugin(BasePlugin):
             " padding: 10px 14px; font-size: 14px; background: #FAFAFA; }"
             "QLineEdit:focus { border: 1px solid #6366F1; background: #FFFFFF; }")
 
+        COMBO_STYLE = (
+            "QComboBox { border: 1px solid #E5E7EB; border-radius: 10px;"
+            " padding: 10px 14px; font-size: 14px; background: #FAFAFA; color: #1A1A1A; }"
+            "QComboBox:focus { border: 1px solid #6366F1; background: #FFFFFF; }"
+            "QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right;"
+            " width: 24px; border-left: 1px solid #E5E7EB; border-top-right-radius: 10px;"
+            " border-bottom-right-radius: 10px; }"
+            "QComboBox QAbstractItemView { background: #FFFFFF; color: #1A1A1A;"
+            " border: 1px solid #E5E7EB; border-radius: 6px; selection-background-color: #EEF2FF;"
+            " selection-color: #1A1A1A; outline: none; }"
+        )
         self.combo_model = QComboBox()
         self.combo_model.addItems(list(MODEL_CONFIG.keys()))
+        self.combo_model.setStyleSheet(COMBO_STYLE)
 
         self.combo_ar = QComboBox()
+        self.combo_ar.setStyleSheet(COMBO_STYLE)
         self.combo_size = QComboBox()
+        self.combo_size.setStyleSheet(COMBO_STYLE)
 
         self.spin_poll = QSpinBox()
         self.spin_poll.setMinimum(20)

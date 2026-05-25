@@ -21,8 +21,18 @@ from PySide6.QtWidgets import (
     QProgressBar, QTextEdit, QButtonGroup,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QIcon
 
 from plugin_base import BasePlugin
+
+
+def _resource_path(relative: str) -> str:
+    """资源路径解析 —— 兼容开发环境和 PyInstaller 打包后"""
+    if hasattr(sys, '_MEIPASS'):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).parent
+    return str(base / relative)
 
 # ═══════════════════════  Design Tokens  ═══════════════════════
 C_BG          = "#F8F9FC"
@@ -53,6 +63,9 @@ class ModernAppShell(QMainWindow):
         self.setWindowTitle("Noova AI 批量出图助手")
         self.resize(1024, 720)
         self.setMinimumSize(920, 620)
+        icon_path = _resource_path("logo.ico")
+        if Path(icon_path).exists():
+            self.setWindowIcon(QIcon(icon_path))
 
         self._plugins: list[BasePlugin] = []
         self._plugin_by_id: dict[str, BasePlugin] = {}
@@ -70,7 +83,8 @@ class ModernAppShell(QMainWindow):
     # ═══════════════════════  全局样式  ═══════════════════════
     def _init_styles(self):
         self.setStyleSheet(
-            "QMainWindow { background-color: " + C_BG + "; }"
+            "QMainWindow { background-color: " + C_BG + ";"
+            " font-family: \"Microsoft YaHei\"; }"
             "QWidget#Sidebar {"
             " background-color: " + C_SIDEBAR_BG + ";"
             " border-right: 1px solid " + C_SIDEBAR_BDR + "; }"
@@ -236,14 +250,16 @@ class ModernAppShell(QMainWindow):
                         self._register_plugin(plugin)
                         print(f"[OK] 已注册插件: {plugin.name} ({plugin.plugin_id})")
             except Exception as e:
+                import traceback
                 print(f"[ERR] 导入插件模块 {name} 失败: {e}")
+                traceback.print_exc()
 
     def _register_plugin(self, plugin: BasePlugin):
         """注册插件：创建 workspace，不创建侧边栏按钮（延迟到首次打开）"""
-        self._plugins.append(plugin)
-        self._plugin_by_id[plugin.plugin_id] = plugin
         ws = plugin.get_workspace()
         self.stacked_widget.addWidget(ws)
+        self._plugins.append(plugin)
+        self._plugin_by_id[plugin.plugin_id] = plugin
 
     # ═══════════════════════  侧边栏动态排序  ═══════════════════════
     def _rebuild_plugin_nav(self):
@@ -407,6 +423,15 @@ class ModernAppShell(QMainWindow):
     def switch_page(self, index: int):
         old_idx = self._current_page
 
+        # 防御性校验：确保 index 对应的 widget 与 _plugins 列表一致
+        if 1 <= index <= len(self._plugins):
+            expected = self._plugins[index - 1].get_workspace()
+            actual = self.stacked_widget.widget(index)
+            if expected is not actual:
+                print(f"[WARN] switch_page index mismatch: "
+                      f"index={index} expects {self._plugins[index-1].plugin_id} "
+                      f"but stacked[{index}] is different")
+
         if 1 <= old_idx <= len(self._plugins):
             self._plugins[old_idx - 1].on_deactivate()
 
@@ -496,6 +521,7 @@ class ModernAppShell(QMainWindow):
 # ═══════════════════════  入口  ═══════════════════════
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setFont(QFont("Microsoft YaHei", 9))
     window = ModernAppShell()
     window.show()
     sys.exit(app.exec())
