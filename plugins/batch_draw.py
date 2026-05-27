@@ -69,8 +69,9 @@ class ExcelProcessor:
                                     '/') else f"xl/{target}"
                                 if target_path in namelist:
                                     ext = os.path.splitext(target_path)[1]
+                                    safe_name = os.path.basename(name_attr)
                                     save_path = os.path.join(extract_dir,
-                                                             f"{name_attr}{ext}")
+                                                             f"{safe_name}{ext}")
                                     with open(save_path, 'wb') as f:
                                         f.write(z.read(target_path))
                                     dispimg_mapping[name_attr] = save_path
@@ -556,6 +557,9 @@ class BatchDrawPlugin(BasePlugin):
         if success:
             QMessageBox.information(self.main_window, "完成", "所有任务已处理完毕！")
 
-    def _stop_task(self):
+    def stop(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
+
+    def _stop_task(self):
+        self.stop()

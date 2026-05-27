@@ -159,7 +159,7 @@ class NoovaAPI:
         return current
 
     def download_image(self, url: str, save_path: str):
-        resp = requests.get(url, stream=True)
+        resp = requests.get(url, stream=True, timeout=60)
         resp.raise_for_status()
         with open(save_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=8192):

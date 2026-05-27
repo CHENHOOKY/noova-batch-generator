@@ -484,6 +484,8 @@ class ModernAppShell(QMainWindow):
     def _on_stop_clicked(self):
         self.stop_requested.emit()
         self.btn_stop.setDisabled(True)
+        for plugin in self._plugins:
+            plugin.stop()
 
     # ═══════════════════════  窗口事件  ═══════════════════════
     def resizeEvent(self, event):
@@ -506,11 +508,7 @@ class ModernAppShell(QMainWindow):
     def closeEvent(self, event):
         self.stop_requested.emit()
         for plugin in self._plugins:
-            if (hasattr(plugin, '_worker')
-                    and plugin._worker
-                    and plugin._worker.isRunning()):
-                plugin._worker.stop()
-                plugin._worker.wait(3000)
+            plugin.stop()
         super().closeEvent(event)
 
     @property

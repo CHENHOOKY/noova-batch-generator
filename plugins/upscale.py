@@ -591,10 +591,13 @@ class UpscalePlugin(BasePlugin):
 
         self._worker.start()
 
-    def _cancel(self):
+    def stop(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
             self._worker.wait(100)
+
+    def _cancel(self):
+        self.stop()
         # 断开共享监视器
         mw = self.main_window
         if mw:

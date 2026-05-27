@@ -752,10 +752,13 @@ class PPTMasterPlugin(BasePlugin):
         self._worker.outline_ready.connect(self._on_outline_ready)
         self._worker.start()
 
-    def _cancel_generate(self):
+    def stop(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
             self._worker.wait(100)
+
+    def _cancel_generate(self):
+        self.stop()
         self._disconnect_monitor()
         self._phase = ""
         self._stored_outline = None

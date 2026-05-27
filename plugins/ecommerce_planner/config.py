@@ -1,10 +1,29 @@
 """电商套图AI规划器 —— 常量与配置"""
 
-# ── DeepSeek API ──
+import os
+
+# ── DeepSeek API (文本推理) ──
 DS_BASE_URL = "https://api.deepseek.com"
 DS_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"]
 DEFAULT_MAX_TOKENS = 32768
 DEFAULT_TEMPERATURE = 0.7
+
+# ── Noova 出图 API ──
+NOOVA_BASE_URL = "https://noova.cn"
+from plugins._noova_api import MODEL_CONFIG  # noqa: E402
+DEFAULT_IMAGE_MODEL = "nano-banana-pro"
+DEFAULT_IMAGE_SIZE = "1K"
+DEFAULT_ASPECT_RATIO = "1:1"
+MAX_CONCURRENCY = 3
+MAX_POLL_RETRIES = 120
+
+# ── 路由模式 ──
+ROUTING_MODES = {
+    "STYLE_FUSION":  "强锚点 - 对标融合模式",
+    "STYLE_GUIDED":  "半锚点 - 风格引导模式",
+    "FREE_FISSION":  "无锚点 - 自由裂变模式",
+    "REDESIGN":      "原图优化改版模式",
+}
 
 # ── 下拉选项 ──
 CATEGORY_OPTIONS = [
@@ -36,5 +55,4 @@ TASK_TYPE_OPTIONS = [
 ]
 
 # ── 输出目录 ──
-import os
 NOOVA_PROJECTS_DIR = os.path.join(os.path.expanduser("~"), "NoovaProjects")

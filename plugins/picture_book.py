@@ -1723,10 +1723,13 @@ class PictureBookPlugin(BasePlugin):
 
         self._worker.start()
 
-    def _stop_task(self):
+    def stop(self):
         if hasattr(self, '_worker') and self._worker and self._worker.isRunning():
             self._worker.stop()
-            self._log_append("⏹ 用户中止生成...")
+
+    def _stop_task(self):
+        self.stop()
+        self._log_append("⏹ 用户中止生成...")
 
     def _log_append(self, text: str):
         self._log_area.append(text)

@@ -102,6 +102,9 @@ class BasePlugin:
     def on_deactivate(self):
         """离开插件工作区时调用（可选）"""
 
+    def stop(self):
+        """停止当前插件正在运行的任务（子类可选覆写）"""
+
     # ---- 内部方法 ----
 
     def get_card(self) -> QPushButton:

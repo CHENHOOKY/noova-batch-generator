@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QSizePolicy, QCheckBox,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 
 from plugin_base import BasePlugin
 from plugins._noova_api import NoovaAPI, MODEL_CONFIG
@@ -574,11 +575,13 @@ class Seedance2Plugin(BasePlugin):
         self._worker.finished.connect(self._on_finished)
         self._worker.start()
 
-    def _cancel(self):
+    def stop(self):
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
-            self._worker.quit()
             self._worker.wait(3000)
+
+    def _cancel(self):
+        self.stop()
         self._reset_ui()
 
     def _reset_ui(self):
@@ -824,7 +827,4 @@ class Seedance2Plugin(BasePlugin):
         pass
 
     def on_plugin_unloaded(self):
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.quit()
-            self._worker.wait(3000)
+        self.stop()

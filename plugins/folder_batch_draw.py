@@ -612,6 +612,9 @@ class FolderBatchDrawPlugin(BasePlugin):
         if success:
             QMessageBox.information(self.main_window, "完成", "所有图片任务已处理完毕！")
 
-    def _stop_task(self):
+    def stop(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
+
+    def _stop_task(self):
+        self.stop()
