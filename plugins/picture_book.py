@@ -122,8 +122,12 @@ R_LG = 14
 R_XL = 24
 
 # 文本 API 默认
-DS_BASE_URL = "https://api.deepseek.com"
-DS_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"]
+DS_BASE_URL = "https://apic.dpdns.org"
+DS_MODELS = [
+    "deepseek-v4-pro", "deepseek-v4-flash",
+    "gpt5.5", "gpt5.4",
+    "claude-opus-4-6", "claude-opus-4-7",
+]
 DS_DEFAULT_MODEL = "deepseek-v4-pro"
 DS_MAX_TOKENS = 16384
 
@@ -1223,20 +1227,13 @@ class PictureBookPlugin(BasePlugin):
             f" selection-background-color: #FEF3C7; selection-color: {C_TEXT};"
             f" outline: none; }}")
 
-    def _build_api_card(self, prefix: str, models: list,
-                        default_model: str) -> QFrame:
+    def _build_api_model_card(self, prefix: str, models: list,
+                               default_model: str) -> tuple:
         """构建单个 API 配置子卡片"""
         card = self._make_card(prefix.replace(" ", ""))
         cl = self._card_layout(card, (16, 14, 16, 14), 8)
 
         cl.addWidget(self._section_label(prefix))
-
-        cl.addWidget(self._sub_label("API Key"))
-        key_input = QLineEdit()
-        key_input.setEchoMode(QLineEdit.Password)
-        key_input.setPlaceholderText("输入 API Key...")
-        self._input_style(key_input)
-        cl.addWidget(key_input)
 
         cl.addWidget(self._sub_label("模型"))
         model_combo = QComboBox()
@@ -1246,7 +1243,7 @@ class PictureBookPlugin(BasePlugin):
         self._combo_style(model_combo)
         cl.addWidget(model_combo)
 
-        return card, key_input, model_combo
+        return card, model_combo
 
     def _build_api_section(self) -> QFrame:
         card = self._make_card("ApiCard")
@@ -1254,14 +1251,18 @@ class PictureBookPlugin(BasePlugin):
 
         layout.addWidget(self._section_label("⚙️ API 配置"))
 
+        self._api_status_label = QLabel()
+        self._update_api_status()
+        layout.addWidget(self._api_status_label)
+
         row = QHBoxLayout()
         row.setSpacing(16)
 
-        left, self._text_api_key_input, self._text_api_model_combo = \
-            self._build_api_card(
+        left, self._text_api_model_combo = \
+            self._build_api_model_card(
                 "📝 文本 API", DS_MODELS, DS_DEFAULT_MODEL)
-        right, self._image_api_key_input, self._image_api_model_combo = \
-            self._build_api_card(
+        right, self._image_api_model_combo = \
+            self._build_api_model_card(
                 "🎨 出图 API",
                 list(MODEL_CONFIG.keys()),
                 list(MODEL_CONFIG.keys())[0] if MODEL_CONFIG else "")
@@ -1531,6 +1532,32 @@ class PictureBookPlugin(BasePlugin):
         self._on_img_model_changed(self._image_api_model_combo.currentText())
         return card
 
+    def _update_api_status(self):
+        if self.main_window:
+            txt_ok = self.main_window.settings_manager.has_text_key()
+            vis_ok = self.main_window.settings_manager.has_visual_key()
+            parts = []
+            if txt_ok:
+                parts.append("✅ 文本 Key 已配置")
+            else:
+                parts.append("⚠️ 文本 Key 未配置")
+            if vis_ok:
+                parts.append("✅ 视觉 Key 已配置")
+            else:
+                parts.append("⚠️ 视觉 Key 未配置")
+            status = "  |  ".join(parts)
+            if txt_ok and vis_ok:
+                color = "#10B981"
+            else:
+                color = "#F59E0B"
+                status += "\n请点击侧边栏 ⚙️ 设置进行配置"
+            self._api_status_label.setText(status)
+            self._api_status_label.setStyleSheet(
+                f"font-size: 12px; color: {color}; background: transparent; padding: 2px 0;")
+
+    def on_activate(self):
+        self._update_api_status()
+
     def _on_img_model_changed(self, model_name: str):
         """出图模型变化时联动更新比例和尺寸选项"""
         cfg = MODEL_CONFIG.get(model_name, {})
@@ -1640,17 +1667,17 @@ class PictureBookPlugin(BasePlugin):
     def _start_generate(self):
         """开始生成"""
         # 校验必填项
-        text_key = self._text_api_key_input.text().strip()
+        text_key = self.main_window.settings_manager.get_text_key()
         if not text_key:
-            QMessageBox.warning(self._text_api_key_input,
-                                "缺少 API Key", "请输入文本 API Key")
+            QMessageBox.warning(self.main_window,
+                                "缺少 API Key", "未配置文本模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
 
         if self._check_gen_images.isChecked():
-            img_key = self._image_api_key_input.text().strip()
+            img_key = self.main_window.settings_manager.get_visual_key()
             if not img_key:
-                QMessageBox.warning(self._image_api_key_input,
-                                    "缺少 API Key", "请输入出图 API Key 或取消勾选「生成绘本配图」")
+                QMessageBox.warning(self.main_window,
+                                    "缺少 API Key", "未配置视觉模型 API Key！请点击侧边栏 ⚙️ 设置进行配置，或取消勾选「生成绘本配图」")
                 return
 
         # 收集参数
@@ -1687,10 +1714,10 @@ class PictureBookPlugin(BasePlugin):
         # 创建 worker
         self._worker = PictureBookWorker(
             text_api_key=text_key,
-            text_base_url=DS_BASE_URL,
+            text_base_url=self.main_window.settings_manager.get_text_base_url(),
             text_model=self._text_api_model_combo.currentText(),
-            image_api_key=self._image_api_key_input.text().strip(),
-            image_base_url=IMG_BASE_URL,
+            image_api_key=self.main_window.settings_manager.get_visual_key(),
+            image_base_url=self.main_window.settings_manager.get_visual_base_url(),
             image_model=image_model,
             style_key=style_key, scene_key=scene_key, age=age, pages=pages,
             character_key=char_key, emotion=emotion, theme=theme,

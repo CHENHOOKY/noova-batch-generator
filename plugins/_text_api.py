@@ -31,6 +31,7 @@ def call_text_api(api_key: str, base_url: str, model: str,
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Authorization", f"Bearer {api_key}")
     req.add_header("Content-Type", "application/json; charset=utf-8")
+    req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

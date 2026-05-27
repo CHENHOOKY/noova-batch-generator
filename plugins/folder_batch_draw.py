@@ -155,7 +155,7 @@ class FolderBatchDrawWorker(QThread):
 
     def run(self):
         try:
-            # 过滤有效组
+            # 过滤有效组：必须有提示词 AND 有文件夹（自有或默认）
             valid_groups = [g for g in self.groups
                             if g.get("prompt", "").strip() and g.get("folder", "").strip()]
 
@@ -164,22 +164,31 @@ class FolderBatchDrawWorker(QThread):
                 self.finished_task.emit(False)
                 return
 
+            # 汇总使用默认文件夹的组
+            default_users = [g for g in valid_groups if g.get("source") == "default"]
+            own_users = [g for g in valid_groups if g.get("source") == "own"]
+            if default_users:
+                self.log_msg.emit(
+                    f"📂 {len(own_users)} 组使用自有文件夹，"
+                    f"{len(default_users)} 组使用默认文件夹")
+
             # 展开为图片级任务
             all_tasks = []
             for gi, g in enumerate(valid_groups):
                 prompt = g["prompt"].strip()
                 folder = g["folder"].strip()
+                source_tag = "默认" if g.get("source") == "default" else "自有"
                 safe_name = sanitize_folder_name(prompt, f"group_{gi + 1}")
                 group_dir = make_unique_subdir(self.output_dir, safe_name)
 
                 images = scan_folder_images(folder)
                 if not images:
                     self.log_msg.emit(
-                        f"⚠️ 组{gi + 1} ({prompt}): 文件夹中无图片，跳过")
+                        f"⚠️ 组{gi + 1} ({prompt}): {source_tag}文件夹中无图片，跳过")
                     continue
 
                 self.log_msg.emit(
-                    f"组{gi + 1} ({prompt}): 发现 {len(images)} 张图片 → 输出至 {group_dir}")
+                    f"组{gi + 1} ({prompt}) [{source_tag}]: 发现 {len(images)} 张图片 → 输出至 {group_dir}")
                 for img_path in images:
                     all_tasks.append({
                         "prompt": prompt,
@@ -248,6 +257,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         super().__init__()
         self._worker = None
         self.output_path = ""
+        self.default_input_path = ""
         self.group_prompts: List[QLineEdit] = []
         self.group_folder_labels: List[QLabel] = []
         self.group_folder_paths: List[str] = [""] * GROUP_COUNT
@@ -317,14 +327,10 @@ class FolderBatchDrawPlugin(BasePlugin):
             "background: transparent; padding-bottom: 4px;")
         sf.addRow(sf_title)
 
-        self.input_api = QLineEdit()
-        self.input_api.setPlaceholderText("sk-...")
-        self.input_api.setEchoMode(QLineEdit.Password)
-        self.input_api.setText(os.environ.get("NOOVA_API_KEY", ""))
-        self.input_api.setStyleSheet(
-            "QLineEdit { border: 1px solid #E5E7EB; border-radius: 10px;"
-            " padding: 10px 14px; font-size: 14px; background: #FAFAFA; }"
-            "QLineEdit:focus { border: 1px solid #6366F1; background: #FFFFFF; }")
+        self._api_status_label = QLabel()
+        self._update_api_status()
+        self._api_status_label.setStyleSheet(
+            "font-size: 13px; background: transparent; padding: 6px 0;")
 
         self.combo_model = QComboBox()
         self.combo_model.addItems(list(MODEL_CONFIG.keys()))
@@ -350,7 +356,7 @@ class FolderBatchDrawPlugin(BasePlugin):
         self.combo_model.currentTextChanged.connect(self._on_model_changed)
         self._on_model_changed(self.combo_model.currentText())
 
-        sf.addRow(QLabel("API Key"), self.input_api)
+        sf.addRow(QLabel("API Key"), self._api_status_label)
         sf.addRow(QLabel("模型"), self.combo_model)
         sf.addRow(QLabel("比例"), self.combo_ar)
         sf.addRow(QLabel("画质"), self.combo_size)
@@ -393,6 +399,46 @@ class FolderBatchDrawPlugin(BasePlugin):
         out_inner.addLayout(out_row)
 
         left_col.addWidget(out_card)
+
+        # 默认参考图文件夹卡片
+        default_input_card = QFrame()
+        default_input_card.setStyleSheet(
+            "QFrame#DefaultInputCard { background: #FFFFFF; border-radius: 14px; "
+            "border: 1px solid #ECEDF0; }")
+        default_input_card.setObjectName("DefaultInputCard")
+        default_input_card.setFixedWidth(340)
+        default_inner = QVBoxLayout(default_input_card)
+        default_inner.setContentsMargins(24, 18, 24, 18)
+        default_inner.setSpacing(10)
+
+        default_input_label = QLabel("📂 默认参考图文件夹")
+        default_input_label.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #1A1A1A; background: transparent;")
+        default_inner.addWidget(default_input_label)
+
+        default_hint = QLabel("各组未单独选择参考图时，默认读取此文件夹")
+        default_hint.setStyleSheet(
+            "color: #9CA3AF; font-size: 11px; background: transparent;")
+        default_inner.addWidget(default_hint)
+
+        default_row = QHBoxLayout()
+        self.btn_default_input = QPushButton("选择文件夹...")
+        self.btn_default_input.setStyleSheet("""
+            QPushButton { background: #F3F4F6; border: 1px solid #E5E7EB;
+                border-radius: 8px; padding: 9px 14px; font-size: 13px; color: #333; }
+            QPushButton:hover { background: #E5E7EB; }
+        """)
+        self.btn_default_input.setCursor(Qt.PointingHandCursor)
+        self.btn_default_input.clicked.connect(self._select_default_input_dir)
+        self.default_input_label = QLabel("未选择")
+        self.default_input_label.setStyleSheet(
+            "color: #999; font-size: 12px; background: transparent;")
+        self.default_input_label.setWordWrap(True)
+        default_row.addWidget(self.btn_default_input)
+        default_row.addWidget(self.default_input_label, 1)
+        default_inner.addLayout(default_row)
+
+        left_col.addWidget(default_input_card)
         left_col.addStretch()
 
         body.addLayout(left_col)
@@ -523,6 +569,19 @@ class FolderBatchDrawPlugin(BasePlugin):
         self.combo_size.clear()
         self.combo_size.addItems(config.get("sizes", []))
 
+    def _update_api_status(self):
+        if self.main_window and self.main_window.settings_manager.has_visual_key():
+            self._api_status_label.setText("✅ 已配置（来自全局设置）")
+            self._api_status_label.setStyleSheet(
+                "font-size: 13px; color: #10B981; background: transparent; padding: 6px 0;")
+        else:
+            self._api_status_label.setText("⚠️ 未配置，请点击侧边栏 ⚙️ 设置进行配置")
+            self._api_status_label.setStyleSheet(
+                "font-size: 13px; color: #F59E0B; background: transparent; padding: 6px 0;")
+
+    def on_activate(self):
+        self._update_api_status()
+
     def _select_folder(self, index: int):
         folder = QFileDialog.getExistingDirectory(
             self.main_window, f"选择第{index + 1}组的参考图文件夹")
@@ -545,6 +604,15 @@ class FolderBatchDrawPlugin(BasePlugin):
                 }}
             """)
 
+    def _select_default_input_dir(self):
+        folder = QFileDialog.getExistingDirectory(self.main_window, "选择默认参考图文件夹")
+        if folder:
+            self.default_input_path = folder
+            img_count = len(scan_folder_images(folder))
+            self.default_input_label.setText(f"✅ {folder}  ({img_count} 张图)")
+            self.default_input_label.setStyleSheet(
+                "color: #10B981; font-size: 12px; background: transparent;")
+
     def _select_output_dir(self):
         folder = QFileDialog.getExistingDirectory(self.main_window, "选择输出根目录")
         if folder:
@@ -558,16 +626,26 @@ class FolderBatchDrawPlugin(BasePlugin):
             QMessageBox.information(self.main_window, "提示", "有任务正在运行，请先终止或等待完成")
             return
 
-        api_key = self.input_api.text().strip()
+        api_key = self.main_window.settings_manager.get_visual_key()
         if not api_key:
-            QMessageBox.warning(self.main_window, "提示", "请填写 API Key！")
+            QMessageBox.warning(self.main_window, "提示",
+                "未配置视觉模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
 
         groups = []
         for i in range(GROUP_COUNT):
             prompt = self.group_prompts[i].text().strip()
-            folder = self.group_folder_paths[i]
-            groups.append({"prompt": prompt, "folder": folder})
+            own_folder = self.group_folder_paths[i]
+            if own_folder:
+                folder = own_folder
+                source = "own"
+            elif self.default_input_path:
+                folder = self.default_input_path
+                source = "default"
+            else:
+                folder = ""
+                source = ""
+            groups.append({"prompt": prompt, "folder": folder, "source": source})
 
         valid = [g for g in groups if g["prompt"] and g["folder"]]
         if not valid:

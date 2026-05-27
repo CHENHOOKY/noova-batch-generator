@@ -1,4 +1,4 @@
-"""电商套图AI规划器 —— 3 阶段提示词模板
+"""电商图 —— 3 阶段提示词模板
 
 Phase 0: VISUAL_INFERENCE_SYSTEM  — M1 状态机 + M3 文本驱动视觉推理
 Phase 1: INTENT_SYSTEM             — M2 4通道意图解析 + 物理锚点校准

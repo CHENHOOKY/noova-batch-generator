@@ -1,6 +1,6 @@
 # Noova AI 插件开发指南
 
-> 适用版本：v2.4.0+
+> 适用版本：v2.5.0+
 >
 > 本文档面向希望在 Noova AI 中添加新功能的开发者。读完你将掌握：单文件插件和 package 插件的创建方法、共享基础设施的复用方式、Worker 线程模式、以及打包分发流程。
 
@@ -38,8 +38,10 @@ main.py                    ← 应用主壳（无需修改）
   │   │   ├── 🔍 图像放大      （单文件插件）
   │   │   ├── 📖 绘本魔法师    （单文件插件）
   │   │   ├── 📊 PPT大师       （package 插件）
-  │   │   └── 🎬 分镜脚本生成器（package 插件）
-  │   └── 🚀 运行监控台  ← 任务运行时显示
+  │   │   ├── 🎬 分镜脚本生成器（package 插件）
+  │   │   └── 🛒 电商规划师     （package 插件）
+  │   ├── 🚀 运行监控台  ← 任务运行时显示
+  │   └── ⚙️ 设置        ← 全局 API Key 配置
   ├── 首页卡片网格            ← 由插件自动填充
   ├── QStackedWidget         ← 页面切换容器
   │   ├── [0] 首页
@@ -48,6 +50,11 @@ main.py                    ← 应用主壳（无需修改）
   └── 插件发现机制            ← pkgutil + 文件扫描，启动时自动执行
 
 plugin_base.py              ← 插件基类（BasePlugin）
+
+config/                     ← 全局设置模块
+  ├── __init__.py           ← 包标记
+  ├── settings_manager.py   ← SettingsManager（Key 持久化）
+  └── settings_dialog.py    ← 设置弹窗 UI
 
 plugins/                    ← 插件目录
   ├── __init__.py           ← 包标记
@@ -333,6 +340,13 @@ def _stop(self):
 | `monitor_progress(current, total)` | 更新进度条 |
 | `monitor_set_running(bool)` | 显示/隐藏停止按钮 |
 | `stop_requested` | Signal — 连接取消处理函数 |
+| `settings_manager.get_visual_key()` | 获取视觉模型 API Key（全局设置） |
+| `settings_manager.get_text_key()` | 获取文本模型 API Key（全局设置） |
+| `settings_manager.get_visual_base_url()` | 获取视觉模型 Base URL |
+| `settings_manager.get_text_base_url()` | 获取文本模型 Base URL |
+| `settings_manager.has_visual_key()` | 检查视觉 Key 是否已配置 |
+| `settings_manager.has_text_key()` | 检查文本 Key 是否已配置 |
+| `settings_manager.settings_changed` | Signal — 设置变更通知 |
 
 ---
 
@@ -625,7 +639,45 @@ except Exception:
     self.log.emit(safe_traceback())  # 安全输出到日志
 ```
 
-### 6e. 代码约定总结
+### 6e. SettingsManager — 全局 API Key 管理
+
+自 v2.5.0 起，所有 API Key 集中管理。用户在侧边栏 ⚙️ 设置中配置一次即可。插件**不应**自己创建 API Key 输入框，而应从 `settings_manager` 读取。
+
+```python
+# 在 on_activate() 中刷新 Key 状态，在 _start() 中读取 Key
+class MyPlugin(BasePlugin):
+    def on_activate(self):
+        self._update_api_status()
+
+    def _update_api_status(self):
+        mw = self.main_window
+        if mw and mw.settings_manager.has_text_key():
+            self._status_label.setText("✅ 已配置")
+        else:
+            self._status_label.setText("⚠️ 未配置，请到侧边栏 ⚙️ 设置中配置")
+
+    def _start_task(self):
+        # 读取 Key
+        text_key = self.main_window.settings_manager.get_text_key()
+        visual_key = self.main_window.settings_manager.get_visual_key()
+        text_base_url = self.main_window.settings_manager.get_text_base_url()
+
+        if not text_key:
+            QMessageBox.warning(None, "提示", "未配置文本 API Key！")
+            return
+
+        # 传递给 Worker（Worker 不需修改）
+        self._worker = MyWorker(
+            api_key=text_key, base_url=text_base_url, ...)
+```
+
+**关键规则：**
+- 插件中**不创建 API Key QLineEdit**，只用状态标签显示配置状态
+- 模型选择下拉框保留在插件内（用户可按任务切换模型）
+- Base URL 从 settings 读取（视觉: `noova.cn`，文本: `apic.dpdns.org`）
+- 在 `on_activate()` 中调用 `_update_api_status()` 保持状态同步
+
+### 6f. 代码约定总结
 
 | 约定 | 说明 |
 |------|------|
@@ -1090,3 +1142,9 @@ class MyPlugin(BasePlugin):
 | `call_text_api_with_retry` | `plugins._text_api` | 带重试的 API 调用（推荐） |
 | `extract_json` | `plugins._utils` | 从 LLM 输出中提取 JSON（处理 markdown 代码块） |
 | `safe_traceback` | `plugins._utils` | 获取 API Key 已脱敏的 traceback 字符串 |
+| `settings_manager.get_visual_key()` | `main_window.settings_manager` | 全局视觉 API Key |
+| `settings_manager.get_text_key()` | `main_window.settings_manager` | 全局文本 API Key |
+| `settings_manager.get_text_base_url()` | `main_window.settings_manager` | 文本 API Base URL |
+| `settings_manager.get_visual_base_url()` | `main_window.settings_manager` | 视觉 API Base URL |
+| `settings_manager.has_visual_key()` | `main_window.settings_manager` | 检查视觉 Key 是否配置 |
+| `settings_manager.has_text_key()` | `main_window.settings_manager` | 检查文本 Key 是否配置 |

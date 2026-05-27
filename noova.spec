@@ -25,6 +25,8 @@ a = Analysis(
         ('kart-io-picture-book-wizard', 'kart-io-picture-book-wizard'),
         # 窗口图标（运行时读取）
         ('logo.ico', '.'),
+        # 设置模块
+        ('config', 'config'),
     ],
     hiddenimports=[
         # 插件模块（动态 import，PyInstaller 无法自动发现）
@@ -92,6 +94,12 @@ a = Analysis(
         'svg_finalize.svg_rect_to_path',
         # 内部工具模块（下划线前缀，PyInstaller 可能遗漏）
         'plugins._noova_api',
+        'plugins._text_api',
+        'plugins._utils',
+        # 设置模块
+        'config',
+        'config.settings_manager',
+        'config.settings_dialog',
         # upscale 插件依赖
         'numpy',
         'onnxruntime',

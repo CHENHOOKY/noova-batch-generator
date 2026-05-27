@@ -1,10 +1,13 @@
-"""电商套图AI规划器 —— 常量与配置"""
+"""电商图 —— 常量与配置"""
 
 import os
 
 # ── DeepSeek API (文本推理) ──
-DS_BASE_URL = "https://api.deepseek.com"
-DS_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"]
+DS_BASE_URL = "https://apic.dpdns.org"
+DS_MODELS = [
+    "gpt5.5", "gpt5.4",
+    "claude-opus-4-6", "claude-opus-4-7",
+]
 DEFAULT_MAX_TOKENS = 32768
 DEFAULT_TEMPERATURE = 0.7
 

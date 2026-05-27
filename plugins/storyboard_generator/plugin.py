@@ -166,40 +166,24 @@ class Seedance2Plugin(BasePlugin):
         row.addLayout(dc)
         layout.addLayout(row)
 
-        # DeepSeek API section
-        ds_sec = self._build_section_frame("DeepSeek API 配置")
-        dsl = QVBoxLayout(ds_sec)
-        dsl.setContentsMargins(12, 12, 12, 12)
-        dsl.setSpacing(8)
-        dsl.addWidget(self._make_section_title("DeepSeek API 配置"))
-        dsl.addWidget(QLabel("API Key"))
-        self._input_ds_key = QLineEdit()
-        self._input_ds_key.setPlaceholderText("DeepSeek API Key")
-        self._input_ds_key.setEchoMode(QLineEdit.Password)
-        self._input_ds_key.setText(os.environ.get("DEEPSEEK_API_KEY", ""))
-        self._input_ds_key.setStyleSheet(INPUT_STYLE)
-        dsl.addWidget(self._input_ds_key)
-        dsl.addWidget(QLabel("Model"))
+        # API config (keys from global settings)
+        api_sec = self._build_section_frame("API 配置")
+        api_lo = QVBoxLayout(api_sec)
+        api_lo.setContentsMargins(12, 12, 12, 12)
+        api_lo.setSpacing(8)
+        api_lo.addWidget(self._make_section_title("API 配置"))
+
+        self._api_status_label = QLabel()
+        self._update_api_status()
+        api_lo.addWidget(self._api_status_label)
+
+        api_lo.addWidget(QLabel("文本模型"))
         self._combo_ds_model = QComboBox()
         self._combo_ds_model.addItems(DS_MODELS)
         self._combo_ds_model.setStyleSheet(COMBO_STYLE)
-        dsl.addWidget(self._combo_ds_model)
-        layout.addWidget(ds_sec)
+        api_lo.addWidget(self._combo_ds_model)
 
-        # Noova API section
-        noova_sec = self._build_section_frame("Noova API 配置（出图）")
-        nvl = QVBoxLayout(noova_sec)
-        nvl.setContentsMargins(12, 12, 12, 12)
-        nvl.setSpacing(8)
-        nvl.addWidget(self._make_section_title("Noova API 配置（出图）"))
-        nvl.addWidget(QLabel("API Key"))
-        self._input_noova_key = QLineEdit()
-        self._input_noova_key.setPlaceholderText("Noova API Key")
-        self._input_noova_key.setEchoMode(QLineEdit.Password)
-        self._input_noova_key.setText(os.environ.get("NOOVA_API_KEY", ""))
-        self._input_noova_key.setStyleSheet(INPUT_STYLE)
-        nvl.addWidget(self._input_noova_key)
-        nvl.addWidget(QLabel("出图模型"))
+        api_lo.addWidget(QLabel("出图模型"))
         self._combo_img_model = QComboBox()
         self._combo_img_model.addItems(list(MODEL_CONFIG.keys()))
         idx = self._combo_img_model.findText(DEFAULT_IMAGE_MODEL)
@@ -207,17 +191,19 @@ class Seedance2Plugin(BasePlugin):
             self._combo_img_model.setCurrentIndex(idx)
         self._combo_img_model.setStyleSheet(COMBO_STYLE)
         self._combo_img_model.currentTextChanged.connect(self._on_img_model_changed)
-        nvl.addWidget(self._combo_img_model)
-        nvl.addWidget(QLabel("画质"))
+        api_lo.addWidget(self._combo_img_model)
+
+        api_lo.addWidget(QLabel("画质"))
         self._combo_img_size = QComboBox()
         self._combo_img_size.setStyleSheet(COMBO_STYLE)
-        nvl.addWidget(self._combo_img_size)
-        nvl.addWidget(QLabel("比例"))
+        api_lo.addWidget(self._combo_img_size)
+
+        api_lo.addWidget(QLabel("比例"))
         self._combo_img_ratio = QComboBox()
         self._combo_img_ratio.setStyleSheet(COMBO_STYLE)
-        nvl.addWidget(self._combo_img_ratio)
+        api_lo.addWidget(self._combo_img_ratio)
         self._on_img_model_changed(self._combo_img_model.currentText())
-        layout.addWidget(noova_sec)
+        layout.addWidget(api_sec)
 
         # Generate checkbox
         self._chk_images = self._make_checkbox("生成素材图片（Phase 3）", True)
@@ -451,6 +437,34 @@ class Seedance2Plugin(BasePlugin):
             "font-size: 13px; font-weight: 700; color: #1E1E2E; background: transparent;")
         return tl
 
+    # ── API status ──
+
+    def _update_api_status(self):
+        if self.main_window:
+            txt_ok = self.main_window.settings_manager.has_text_key()
+            vis_ok = self.main_window.settings_manager.has_visual_key()
+            parts = []
+            if txt_ok:
+                parts.append("✅ 文本 Key 已配置")
+            else:
+                parts.append("⚠️ 文本 Key 未配置")
+            if vis_ok:
+                parts.append("✅ 视觉 Key 已配置")
+            else:
+                parts.append("⚠️ 视觉 Key 未配置")
+            status = "  |  ".join(parts)
+            if txt_ok and vis_ok:
+                color = "#10B981"
+            else:
+                color = "#F59E0B"
+                status += "\n请点击侧边栏 ⚙️ 设置进行配置"
+            self._api_status_label.setText(status)
+            self._api_status_label.setStyleSheet(
+                f"font-size: 12px; color: {color}; background: transparent; padding: 2px 0;")
+
+    def on_activate(self):
+        self._update_api_status()
+
     # ── Image model change ──
 
     def _on_img_model_changed(self, model_name: str):
@@ -491,13 +505,14 @@ class Seedance2Plugin(BasePlugin):
             QMessageBox.warning(self.main_window, "提示", "请输入故事或主题内容")
             return
 
-        # Gather API configs
-        ds_key = self._input_ds_key.text().strip()
+        # Gather API configs (keys from global settings)
+        ds_key = self.main_window.settings_manager.get_text_key()
         ds_model = self._combo_ds_model.currentText()
-        noova_key = self._input_noova_key.text().strip()
+        noova_key = self.main_window.settings_manager.get_visual_key()
 
         if not ds_key:
-            QMessageBox.warning(self.main_window, "提示", "请输入 DeepSeek API Key")
+            QMessageBox.warning(self.main_window, "提示",
+                "未配置文本模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
 
         style_label = self._combo_style.currentText()
@@ -507,7 +522,8 @@ class Seedance2Plugin(BasePlugin):
         run_images = self._chk_images.isChecked() and bool(noova_key)
 
         if run_images and not noova_key:
-            QMessageBox.warning(self.main_window, "提示", "要生成素材图，请输入 Noova API Key，或取消勾选\"生成素材图片\"")
+            QMessageBox.warning(self.main_window, "提示",
+                "要生成素材图，需要视觉模型 API Key，请点击侧边栏 ⚙️ 设置进行配置，或取消勾选\"生成素材图片\"")
             return
 
         # Prepare project dir
@@ -558,7 +574,7 @@ class Seedance2Plugin(BasePlugin):
         self._img_ratio = img_ratio
 
         self._worker = StoryboardWorker(
-            api_key=ds_key, base_url=DS_BASE_URL, ds_model=ds_model,
+            api_key=ds_key, base_url=self.main_window.settings_manager.get_text_base_url(), ds_model=ds_model,
             noova_api=noova, image_model=img_model,
             image_size=img_size, image_ratio=img_ratio,
             story_text=story, style_label=style_label, style_desc=style_desc,
@@ -623,6 +639,7 @@ class Seedance2Plugin(BasePlugin):
             display_name = f"{name}·{view_label}" if view_label else name
             item = AssetGridItem(asset_key, display_name, "character", view_label, prompt)
             item.clicked.connect(self._on_asset_clicked)
+            item.replace_requested.connect(self._on_asset_replace)
             self._asset_grid_items[asset_key] = item
             self._img_grid_layout.addWidget(item,
                 len(self._asset_grid_items) // 4,
@@ -655,23 +672,17 @@ class Seedance2Plugin(BasePlugin):
         self._tabs.setCurrentIndex(2)
 
     def _on_asset_done(self, asset_id: str, filepath: str, success: bool):
-        # asset_id from worker matches ImageTask.asset_id (e.g. "C01_正面全身立绘")
-        for key, item in self._asset_grid_items.items():
-            if key == asset_id or key.startswith(asset_id + "_") or asset_id.startswith(key.split("_")[0] if "_" in key else key):
-                if key == asset_id:
-                    if success:
-                        item.set_status("done", filepath)
-                    else:
-                        item.set_status("failed")
-                    break
+        # asset_id from worker matches ImageTask.asset_id (e.g. "C01_角色三视图")
+        item = self._asset_grid_items.get(asset_id)
+        if item:
+            item.set_status("done" if success else "failed", filepath if success else "")
         else:
-            # Fallback: try prefix match for character assets
-            for key, item in self._asset_grid_items.items():
-                if asset_id.startswith(key.split("_")[0] if "_" in key else key):
-                    if success:
-                        item.set_status("done", filepath)
-                    else:
-                        item.set_status("failed")
+            # Fallback: try character ID prefix match
+            prefix = asset_id.split("_")[0] if "_" in asset_id else asset_id
+            for key, it in self._asset_grid_items.items():
+                if key.startswith(prefix):
+                    it.set_status("done" if success else "failed", filepath if success else "")
+                    break
         self._status_lbl.setText(f"{'✅' if success else '❌'} {asset_id}")
 
     # ── Phase 4 ──
@@ -719,7 +730,30 @@ class Seedance2Plugin(BasePlugin):
         except Exception as e:
             QMessageBox.critical(self.main_window, "导出失败", str(e))
 
-    # ── Asset Click (Regenerate) ──
+    # ── Asset Click (Regenerate) / Replace ──
+
+    def _on_asset_replace(self, asset_id: str):
+        """通过右键菜单上传本地图片替换角色图"""
+        item = self._asset_grid_items.get(asset_id)
+        if not item:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self.main_window, f"选择替换图片 — {asset_id}",
+            "", "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*)")
+        if not path:
+            return
+        try:
+            import shutil
+            filepath = item._filepath
+            if os.path.exists(filepath):
+                shutil.copy2(filepath, filepath + ".replace.bak")
+            shutil.copy2(path, filepath)
+            if os.path.exists(filepath + ".replace.bak"):
+                os.remove(filepath + ".replace.bak")
+            item.set_status("done", filepath)
+            self._status_lbl.setText(f"✅ {asset_id} 已替换为上传图片")
+        except Exception as e:
+            QMessageBox.critical(self.main_window, "替换失败", str(e))
 
     def _on_asset_clicked(self, asset_id: str, filepath: str):
         item = self._asset_grid_items.get(asset_id)

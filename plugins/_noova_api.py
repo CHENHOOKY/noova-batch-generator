@@ -62,6 +62,7 @@ class NoovaAPI:
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
     def local_file_to_base64(self, filepath: str, log_callback=None) -> str:

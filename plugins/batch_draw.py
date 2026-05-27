@@ -359,14 +359,10 @@ class BatchDrawPlugin(BasePlugin):
         form_layout.setSpacing(16)
         form_layout.setVerticalSpacing(18)
 
-        self.input_api = QLineEdit()
-        self.input_api.setPlaceholderText("在此粘贴您的 sk- 开头的 API Key")
-        self.input_api.setEchoMode(QLineEdit.Password)
-        self.input_api.setText(os.environ.get("NOOVA_API_KEY", ""))
-        self.input_api.setStyleSheet(
-            "QLineEdit { border: 1px solid #E5E7EB; border-radius: 10px;"
-            " padding: 10px 14px; font-size: 14px; background: #FAFAFA; }"
-            "QLineEdit:focus { border: 1px solid #6366F1; background: #FFFFFF; }")
+        self._api_status_label = QLabel()
+        self._update_api_status()
+        self._api_status_label.setStyleSheet(
+            "font-size: 13px; background: transparent; padding: 6px 0;")
 
         self.combo_model = QComboBox()
         self.combo_model.addItems(list(MODEL_CONFIG.keys()))
@@ -392,7 +388,7 @@ class BatchDrawPlugin(BasePlugin):
         self.combo_model.currentTextChanged.connect(self._on_model_changed)
         self._on_model_changed(self.combo_model.currentText())
 
-        form_layout.addRow(QLabel("🔑 API Key:"), self.input_api)
+        form_layout.addRow(QLabel("🔑 API Key:"), self._api_status_label)
         form_layout.addRow(QLabel("🤖 选择模型:"), self.combo_model)
         form_layout.addRow(QLabel("📏 图像比例:"), self.combo_ar)
         form_layout.addRow(QLabel("🖼️ 图像画质:"), self.combo_size)
@@ -485,6 +481,19 @@ class BatchDrawPlugin(BasePlugin):
         self.combo_size.clear()
         self.combo_size.addItems(config["sizes"])
 
+    def _update_api_status(self):
+        if self.main_window and self.main_window.settings_manager.has_visual_key():
+            self._api_status_label.setText("✅ 已配置（来自全局设置）")
+            self._api_status_label.setStyleSheet(
+                "font-size: 13px; color: #10B981; background: transparent; padding: 6px 0;")
+        else:
+            self._api_status_label.setText("⚠️ 未配置，请点击侧边栏 ⚙️ 设置进行配置")
+            self._api_status_label.setStyleSheet(
+                "font-size: 13px; color: #F59E0B; background: transparent; padding: 6px 0;")
+
+    def on_activate(self):
+        self._update_api_status()
+
     def _select_excel(self):
         file, _ = QFileDialog.getOpenFileName(
             self.main_window, "选择包含提示词的 Excel 文件", "",
@@ -507,9 +516,10 @@ class BatchDrawPlugin(BasePlugin):
         if self._worker and self._worker.isRunning():
             QMessageBox.information(self.main_window, "提示", "有任务正在运行，请先终止或等待完成")
             return
-        api_key = self.input_api.text().strip()
+        api_key = self.main_window.settings_manager.get_visual_key()
         if not api_key:
-            QMessageBox.warning(self.main_window, "提示", "请填写 API Key！")
+            QMessageBox.warning(self.main_window, "提示",
+                "未配置视觉模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
         if not self.excel_path:
             QMessageBox.warning(self.main_window, "提示", "请选择需要处理的 Excel 文件！")

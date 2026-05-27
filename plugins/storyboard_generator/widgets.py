@@ -34,7 +34,8 @@ _ASSET_TYPE_COLORS: dict[str, str] = {
 class AssetGridItem(QFrame):
     """单张素材图片的预览卡片"""
 
-    clicked = Signal(str, str)  # (asset_id, filepath)
+    clicked = Signal(str, str)        # (asset_id, filepath)
+    replace_requested = Signal(str)   # (asset_id) — user wants to upload replacement
 
     def __init__(self, asset_id: str, asset_name: str,
                  asset_type: str, view_label: str = "", prompt: str = "", parent=None):
@@ -107,9 +108,13 @@ class AssetGridItem(QFrame):
             return
         menu = QMenu(self)
         download_action = menu.addAction("📥 下载图片")
+        if self._asset_type == "character":
+            upload_action = menu.addAction("📤 上传替换角色图")
         action = menu.exec_(self.mapToGlobal(pos))
         if action == download_action:
             self._download()
+        elif self._asset_type == "character" and action == upload_action:
+            self.replace_requested.emit(self._asset_id)
 
     def _download(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -712,6 +717,16 @@ class RegenerateDialog(QDialog):
 
         btn_row.addStretch()
 
+        self._upload_btn = QPushButton("📤 上传替换")
+        self._upload_btn.setStyleSheet(
+            "QPushButton { background: #10B981; border: none;"
+            " border-radius: 10px; padding: 10px 20px; font-size: 14px;"
+            " color: white; font-weight: 600; }"
+            "QPushButton:hover { background: #059669; }")
+        self._upload_btn.setCursor(Qt.PointingHandCursor)
+        self._upload_btn.clicked.connect(self._upload_replace)
+        btn_row.addWidget(self._upload_btn)
+
         self._reg_btn = QPushButton("🔄 重新生成")
         self._reg_btn.setStyleSheet(
             "QPushButton { background: #6366F1; border: none;"
@@ -755,6 +770,37 @@ class RegenerateDialog(QDialog):
                 shutil.copy2(current_file, path)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"下载失败: {e}")
+
+    def _upload_replace(self):
+        """Upload a local image to replace the current asset"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择替换图片", "",
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*)")
+        if not path:
+            return
+
+        try:
+            import shutil
+            # Backup original
+            if os.path.exists(self._filepath):
+                backup = self._filepath + ".upload.bak"
+                shutil.copy2(self._filepath, backup)
+            # Copy uploaded file to replace
+            shutil.copy2(path, self._filepath)
+            # Update preview
+            pix = QPixmap(self._filepath)
+            if not pix.isNull():
+                self._preview.setPixmap(pix.scaled(
+                    180, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            # Clean up backup
+            if os.path.exists(self._filepath + ".upload.bak"):
+                os.remove(self._filepath + ".upload.bak")
+            self._status_lbl.setText("✅ 已上传替换图片")
+            self._status_lbl.setStyleSheet(
+                "font-size: 12px; color: #10B981; font-weight: 600; background: transparent;")
+            self._should_reload = True
+        except Exception as e:
+            QMessageBox.critical(self, "上传失败", f"替换图片失败: {e}")
 
     def _start_regenerate(self):
         prompt = self._prompt_edit.toPlainText().strip()

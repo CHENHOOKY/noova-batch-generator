@@ -9,8 +9,12 @@ from pathlib import Path
 #  DeepSeek API 配置（对齐 ppt_master）
 # ═══════════════════════════════════════
 
-DS_BASE_URL = "https://api.deepseek.com"
-DS_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"]
+DS_BASE_URL = "https://apic.dpdns.org"
+DS_MODELS = [
+    "deepseek-v4-pro", "deepseek-v4-flash",
+    "gpt5.5", "gpt5.4",
+    "claude-opus-4-6", "claude-opus-4-7",
+]
 
 # ═══════════════════════════════════════
 #  Noova API 默认值

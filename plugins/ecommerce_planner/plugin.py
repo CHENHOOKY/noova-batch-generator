@@ -1,4 +1,4 @@
-"""电商套图AI规划器 —— EcommercePlannerPlugin（主插件类）
+"""电商图 —— EcommercePlannerPlugin（主插件类）
 
 4 阶段流水线:
   Phase 0: DeepSeek 文本视觉推理 (M1 + M3)
@@ -35,7 +35,7 @@ from plugins.ecommerce_planner.worker import EcommerceWorker
 
 class EcommercePlannerPlugin(BasePlugin):
     plugin_id = "ecommerce_planner"
-    name = "电商套图AI规划器"
+    name = "电商图"
     version = "2.0.0"
     description = (
         "输入产品信息，AI 推理视觉DNA并直接生成 N 套差异化方案图\n"
@@ -105,7 +105,7 @@ class EcommercePlannerPlugin(BasePlugin):
         layout.setSpacing(14)
 
         # Title
-        title = QLabel("🛒 电商套图AI规划器")
+        title = QLabel("🛒 电商图")
         title.setStyleSheet(
             "font-size: 18px; font-weight: 700; color: #1E1E2E; background: transparent;")
         layout.addWidget(title)
@@ -113,7 +113,7 @@ class EcommercePlannerPlugin(BasePlugin):
         sub = QLabel(
             "输入产品信息，AI 推理视觉DNA并直接生成方案图\n"
             "DeepSeek 做视觉推理 + Noova 出图 API 直接出图\n"
-            "选择方案数量，一键生成 N 张不同风格的电商套图")
+            "选择方案数量，一键生成 N 张不同风格的电商图")
         sub.setWordWrap(True)
         sub.setStyleSheet("font-size: 12px; color: #9CA3AF; background: transparent;")
         layout.addWidget(sub)
@@ -274,35 +274,22 @@ class EcommercePlannerPlugin(BasePlugin):
         sis.addWidget(self._combo_img_size)
         layout.addWidget(sec_imgset)
 
-        # ── API Config ──
+        # ── API Config (keys from global settings) ──
         sec_api = self._section_frame()
         sa = QVBoxLayout(sec_api)
         sa.setContentsMargins(12, 12, 12, 12)
         sa.setSpacing(8)
         sa.addWidget(self._section_title("🔑 API 配置"))
 
-        # DeepSeek
-        sa.addWidget(QLabel("DeepSeek API Key（文本推理，必填）"))
-        self._input_ds_key = QLineEdit()
-        self._input_ds_key.setPlaceholderText("DeepSeek API Key")
-        self._input_ds_key.setEchoMode(QLineEdit.Password)
-        self._input_ds_key.setText(os.environ.get("DEEPSEEK_API_KEY", ""))
-        self._input_ds_key.setStyleSheet(INPUT_STYLE)
-        sa.addWidget(self._input_ds_key)
+        self._api_status_label = QLabel()
+        self._update_api_status()
+        sa.addWidget(self._api_status_label)
 
-        sa.addWidget(QLabel("DeepSeek 模型"))
+        sa.addWidget(QLabel("文本模型"))
         self._combo_ds_model = QComboBox()
         self._combo_ds_model.addItems(DS_MODELS)
         self._combo_ds_model.setStyleSheet(COMBO_STYLE)
         sa.addWidget(self._combo_ds_model)
-
-        # Noova
-        sa.addWidget(QLabel("Noova API Key（出图，必填）"))
-        self._input_img_key = QLineEdit()
-        self._input_img_key.setPlaceholderText("Noova API Key")
-        self._input_img_key.setEchoMode(QLineEdit.Password)
-        self._input_img_key.setStyleSheet(INPUT_STYLE)
-        sa.addWidget(self._input_img_key)
 
         sa.addWidget(QLabel("出图模型"))
         self._combo_img_model = QComboBox()
@@ -470,6 +457,34 @@ class EcommercePlannerPlugin(BasePlugin):
             " color: #374151; font-weight: 600; }"
             "QPushButton:hover { background: #E5E7EB; }")
 
+    # ── API Status ───────────────────
+
+    def _update_api_status(self):
+        if self.main_window:
+            txt_ok = self.main_window.settings_manager.has_text_key()
+            vis_ok = self.main_window.settings_manager.has_visual_key()
+            parts = []
+            if txt_ok:
+                parts.append("✅ 文本 Key 已配置")
+            else:
+                parts.append("⚠️ 文本 Key 未配置")
+            if vis_ok:
+                parts.append("✅ 视觉 Key 已配置")
+            else:
+                parts.append("⚠️ 视觉 Key 未配置")
+            status = "  |  ".join(parts)
+            if txt_ok and vis_ok:
+                color = "#10B981"
+            else:
+                color = "#F59E0B"
+                status += "\n请点击侧边栏 ⚙️ 设置进行配置"
+            self._api_status_label.setText(status)
+            self._api_status_label.setStyleSheet(
+                f"font-size: 12px; color: {color}; background: transparent; padding: 2px 0;")
+
+    def on_activate(self):
+        self._update_api_status()
+
     # ── Image Model Change ───────────────────
 
     def _on_img_model_changed(self, model_name: str):
@@ -541,14 +556,16 @@ class EcommercePlannerPlugin(BasePlugin):
             QMessageBox.warning(self.main_window, "提示", "请输入产品名称")
             return
 
-        ds_key = self._input_ds_key.text().strip()
+        ds_key = self.main_window.settings_manager.get_text_key()
         if not ds_key:
-            QMessageBox.warning(self.main_window, "提示", "请输入 DeepSeek API Key")
+            QMessageBox.warning(self.main_window, "提示",
+                "未配置文本模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
 
-        img_key = self._input_img_key.text().strip()
+        img_key = self.main_window.settings_manager.get_visual_key()
         if not img_key:
-            QMessageBox.warning(self.main_window, "提示", "请输入 Noova 出图 API Key")
+            QMessageBox.warning(self.main_window, "提示",
+                "未配置视觉模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
 
         ds_model = self._combo_ds_model.currentText()
@@ -597,7 +614,7 @@ class EcommercePlannerPlugin(BasePlugin):
         self._phase_lbl.setText("")
 
         self._worker = EcommerceWorker(
-            api_key=ds_key, base_url=DS_BASE_URL, ds_model=ds_model,
+            api_key=ds_key, base_url=self.main_window.settings_manager.get_text_base_url(), ds_model=ds_model,
             product_name=product_name, category=category, material=material,
             color_desc=color_desc, brand_marks=brand_marks,
             platform=platform, task_type=task_type,
@@ -830,7 +847,7 @@ class EcommercePlannerPlugin(BasePlugin):
                     json.dump(export, f, ensure_ascii=False, indent=2)
             else:
                 lines = [
-                    "# 电商套图AI规划方案",
+                    "# 电商图方案",
                     f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                     "",
                 ]

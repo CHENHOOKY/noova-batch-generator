@@ -96,15 +96,15 @@ ASSET_SYSTEM = """You are a professional AI image generation prompt engineer spe
 character design, environment art, and prop design for film production.
 
 Given a script, analyze the story and generate image prompts for ALL visual assets.
-CRITICAL: Do NOT generate fixed views per character. Instead, think like a film director:
-what specific poses, expressions, and situations does EACH character need based on the script?
 
-For example, a character who goes from sadness to rage needs:
-  - One full-body reference showing their standard appearance
-  - One close-up of their angry expression for the climax scene
-  - One action shot if they fight
+CRITICAL FOR CHARACTERS: Each character gets EXACTLY ONE image — a CHARACTER TURNAROUND SHEET
+(角色三视图). This is a single image showing the SAME character from three angles:
+  - FRONT VIEW (正面): full body standing straight, arms slightly away from body, neutral pose
+  - SIDE VIEW / PROFILE (侧面): full body from the side, same outfit, neutral stance
+  - BACK VIEW (背面): full body from behind, showing back of outfit and hair
 
-A simple background character may only need 1 image.
+The three views should be arranged side-by-side in one image (character design reference sheet format).
+This serves as the master character reference for ALL episodes.
 
 Output ONLY valid JSON (no markdown, no explanation):
 {
@@ -112,9 +112,9 @@ Output ONLY valid JSON (no markdown, no explanation):
     {
       "character_id": "C01",
       "name": "character Chinese name",
-      "view_label": "descriptive label in Chinese (e.g. 正面全身立绘, 雪中背影, 持枪怒目特写)",
-      "prompt": "complete English image generation prompt with ALL visual details",
-      "purpose": "what this specific image is used for in the story (Chinese)"
+      "view_label": "角色三视图",
+      "prompt": "complete English image generation prompt for a character turnaround sheet",
+      "purpose": "master character reference for all episodes (Chinese)"
     }
   ],
   "scene_assets": [
@@ -135,28 +135,24 @@ Output ONLY valid JSON (no markdown, no explanation):
   ]
 }
 
-CRITICAL RULES FOR CHARACTER ASSETS:
+CRITICAL RULES FOR CHARACTER ASSETS (TURNAROUND SHEET):
 
-1. DO NOT blindly generate 3 views per character. Read the script carefully and decide:
-   - Every character needs at LEAST 1 full-body reference image (全身立绘)
-   - If a character has a major emotional shift, add a close-up showing that emotion
-   - If a character performs a key action (fighting, running, kneeling), add an action shot
-   - If a character appears in different costumes/situations, add those variations
-   - Most characters need 1-4 images total. Only the protagonist might need 4-5.
+1. EXACTLY ONE character_asset entry per character. No exceptions.
 
-2. Each character image must serve a CLEAR STORYTELLING PURPOSE.
-   - Good examples: "正面全身立绘", "雪中孤独背影", "愤怒特写", "持枪战斗姿态"
-   - Bad examples: "正视图", "侧视图", "3/4视图" (these are mechanical, not narrative)
+2. view_label MUST be "角色三视图" for every character.
 
-3. view_label MUST be descriptive Chinese describing the pose/situation, NOT just an angle.
-
-4. The prompt MUST include:
-   - Full character appearance from the script (face, hair, build, clothing)
-   - The specific pose, expression and camera framing described by view_label
-   - "studio lighting, plain white background" (for reference/standing shots)
-   - OR appropriate environment description (for action/situational shots)
-   - "high quality, 4K, sharp focus"
+3. The prompt MUST describe a CHARACTER TURNAROUND / MODEL SHEET format:
+   - "character turnaround sheet, three views: front view, side profile view, back view"
+   - "full body character reference, arranged side by side"
+   - "same character, same outfit, consistent design across all views"
+   - "neutral standing pose, arms slightly away from body"
+   - Full character appearance from the script (face, hair, build, clothing) — describe ONCE
+   - "character design reference sheet, model sheet, concept art style"
+   - "plain light gray background, studio lighting, clean and professional"
+   - "high quality, 4K, sharp focus, highly detailed costume design"
    - Style prefix at the end: [style_description]
+
+4. The prompt quality determines character consistency across ALL episodes. Be thorough.
 
 SCENE ASSET RULES:
 - Wide establishing shot, cinematic composition
@@ -176,14 +172,17 @@ def make_asset_user(script_json: str, style_desc: str) -> str:
         f"Script:\n{script_json}\n\n"
         f"Visual style to inject into every prompt: {style_desc}\n\n"
         f"Generate image prompts for ALL characters, scenes, and props listed in the script.\n\n"
-        f"IMPORTANT FOR CHARACTERS: Do NOT generate fixed 3-views per character. "
-        f"Analyze each character's role in the script and decide how many images they need:\n"
-        f"- Every character: at least 1 full-body reference (全身立绘)\n"
-        f"- Major emotional changes: add close-up of that emotion\n"
-        f"- Key action scenes: add action/fighting/posing shot\n"
-        f"- Simple background characters: 1 image is enough\n"
-        f"Each image MUST have a descriptive Chinese view_label that tells a story, "
-        f"not just a mechanical angle label.\n\n"
+        f"CRITICAL FOR CHARACTERS: Each character gets EXACTLY ONE image — a CHARACTER "
+        f"TURNAROUND SHEET (角色三视图). This is a single image containing three views "
+        f"(FRONT / SIDE PROFILE / BACK) arranged side-by-side in character design reference "
+        f"sheet format. This one image serves as the master reference for the entire character "
+        f"across all episodes.\n\n"
+        f"The turnaround sheet prompt MUST include:\n"
+        f"- 'character turnaround sheet, three views' format description\n"
+        f"- The character's complete appearance (face, hair, build, clothing)\n"
+        f"- 'plain light gray background, studio lighting'\n"
+        f"- 'character design reference sheet, model sheet, concept art style'\n"
+        f"- Quality directives and the style prefix\n\n"
         f"Each prompt must be a complete, self-contained English image generation prompt "
         f"that includes ALL visual details from the script PLUS quality directives."
     )

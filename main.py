@@ -73,6 +73,9 @@ class ModernAppShell(QMainWindow):
         self._opened_plugins: list[str] = []       # 按最近打开排序
         self._current_page = 0
 
+        from config.settings_manager import SettingsManager
+        self.settings_manager = SettingsManager(self)
+
         self._init_styles()
         self._build_shell()
         self._load_plugins()
@@ -195,6 +198,13 @@ class ModernAppShell(QMainWindow):
         side_layout.addWidget(self.nav_monitor)
 
         side_layout.addStretch()
+
+        self.btn_settings = QPushButton("    ⚙️ 设置")
+        self.btn_settings.setObjectName("NavBtn")
+        self.btn_settings.setCheckable(False)
+        self.btn_settings.setCursor(Qt.PointingHandCursor)
+        self.btn_settings.clicked.connect(self._show_settings)
+        side_layout.addWidget(self.btn_settings)
 
         ver = QLabel("v" + __version__)
         ver.setStyleSheet(
@@ -418,6 +428,12 @@ class ModernAppShell(QMainWindow):
         layout.addWidget(self.log_area)
 
         self.stacked_widget.addWidget(page)
+
+    # ═══════════════════════  设置  ═══════════════════════
+    def _show_settings(self):
+        from config.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self.settings_manager, self)
+        dlg.exec()
 
     # ═══════════════════════  页面导航  ═══════════════════════
     def switch_page(self, index: int):

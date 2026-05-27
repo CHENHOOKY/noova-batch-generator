@@ -48,7 +48,6 @@ class PPTMasterPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self._worker: PPTGenerateWorker | None = None
-        self._api_section_visible = True
         self._last_output_path = ""
 
         self._stored_outline: dict | None = None
@@ -59,10 +58,8 @@ class PPTMasterPlugin(BasePlugin):
         self._slide_placeholder: QLabel | None = None
         self._phase: str = ""
 
-        self._api_toggle_btn: QPushButton | None = None
-        self._api_content: QFrame | None = None
-        self._input_api: QLineEdit | None = None
         self._model_combo: QComboBox | None = None
+        self._api_status_label: QLabel | None = None
 
         self._prompt_input: QTextEdit | None = None
         self._prompt_count: QLabel | None = None
@@ -190,34 +187,13 @@ class PPTMasterPlugin(BasePlugin):
         wl.setContentsMargins(0, 0, 0, 0)
         wl.setSpacing(8)
 
-        self._api_toggle_btn = QPushButton("⚙️  API 设置 ▼")
-        self._api_toggle_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none;"
-            " font-size: 14px; font-weight: 700; color: " + C_TEXT
-            + "; text-align: left; padding: 0; }"
-            "QPushButton:hover { color: " + C_PRIMARY + "; }")
-        self._api_toggle_btn.setCursor(Qt.PointingHandCursor)
-        self._api_toggle_btn.clicked.connect(self._toggle_api_section)
-        wl.addWidget(self._api_toggle_btn)
+        wl.addWidget(self._section_header("⚙️", "API 设置"))
 
-        self._api_content = QFrame()
-        self._api_content.setStyleSheet(
-            "QFrame { background: #F8F9FC; border-radius: 10px; padding: 12px; }")
-        ac = QVBoxLayout(self._api_content)
-        ac.setContentsMargins(14, 14, 14, 14)
-        ac.setSpacing(10)
-
-        ak_lbl = QLabel("API Key")
-        ak_lbl.setStyleSheet(
-            "font-size: 12px; font-weight: 600; color: " + C_TEXT_SUB
-            + "; background: transparent;")
-        ac.addWidget(ak_lbl)
-        self._input_api = QLineEdit()
-        self._input_api.setPlaceholderText("sk-...")
-        self._input_api.setEchoMode(QLineEdit.Password)
-        self._input_api.setText(os.environ.get("DEEPSEEK_API_KEY", ""))
-        self._input_style(self._input_api)
-        ac.addWidget(self._input_api)
+        self._api_status_label = QLabel()
+        self._update_api_status()
+        self._api_status_label.setStyleSheet(
+            "font-size: 13px; background: transparent; padding: 2px 0;")
+        wl.addWidget(self._api_status_label)
 
         mrow = QHBoxLayout()
         mrow.setSpacing(10)
@@ -234,16 +210,9 @@ class PPTMasterPlugin(BasePlugin):
         self._combo_style(self._model_combo)
         ml_col.addWidget(self._model_combo)
         mrow.addLayout(ml_col, 1)
-        ac.addLayout(mrow)
+        wl.addLayout(mrow)
 
-        wl.addWidget(self._api_content)
         return wrapper
-
-    def _toggle_api_section(self):
-        self._api_section_visible = not self._api_section_visible
-        self._api_content.setVisible(self._api_section_visible)
-        arrow = "▼" if self._api_section_visible else "▶"
-        self._api_toggle_btn.setText(f"⚙️  API 设置 {arrow}")
 
     # ── 提示词 ──
 
@@ -648,17 +617,29 @@ class PPTMasterPlugin(BasePlugin):
             "QPushButton:hover { background-color: #E5E7EB; }")
         w.setCursor(Qt.PointingHandCursor)
 
+    def _update_api_status(self):
+        if self.main_window and self.main_window.settings_manager.has_text_key():
+            self._api_status_label.setText("✅ API Key 已配置（来自全局设置）")
+            self._api_status_label.setStyleSheet(
+                "font-size: 13px; color: #10B981; background: transparent; padding: 2px 0;")
+        else:
+            self._api_status_label.setText("⚠️ 未配置 API Key，请点击侧边栏 ⚙️ 设置进行配置")
+            self._api_status_label.setStyleSheet(
+                "font-size: 13px; color: #F59E0B; background: transparent; padding: 2px 0;")
+
+    def on_activate(self):
+        self._update_api_status()
+
     # ═══════════════════════════════════════
     #  操作逻辑
     # ═══════════════════════════════════════
 
     def _start_generate(self, revision_notes: str = "", previous_outline: dict = None):
-        api_key = self._input_api.text().strip()
+        api_key = self.main_window.settings_manager.get_text_key()
         if not api_key:
             QMessageBox.warning(
                 self._workspace, "提示",
-                "请输入 DeepSeek API Key\n\n"
-                "前往 https://platform.deepseek.com/ 获取")
+                "未配置文本模型 API Key！请点击侧边栏 ⚙️ 设置进行配置")
             return
 
         prompt = self._prompt_input.toPlainText().strip()
@@ -686,7 +667,7 @@ class PPTMasterPlugin(BasePlugin):
                 return
             self._log_append("[OK] 依赖安装完成\n")
 
-        base_url = DS_BASE_URL
+        base_url = self.main_window.settings_manager.get_text_base_url()
         model = self._model_combo.currentText().strip()
         if not model:
             model = DS_MODELS[0]

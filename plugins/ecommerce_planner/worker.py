@@ -1,4 +1,4 @@
-"""电商套图AI规划器 —— 后台 Worker（4 阶段编排）
+"""电商图 —— 后台 Worker（4 阶段编排）
 
 Phase 0: DeepSeek 文本视觉推理 (M1 + M3)
 Phase 1: DeepSeek 意图解析 (M2)
