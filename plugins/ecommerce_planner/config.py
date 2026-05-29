@@ -2,12 +2,9 @@
 
 import os
 
-# ── DeepSeek API (文本推理) ──
+# ── Text API (文本推理) ──
+from config.settings_manager import TEXT_MODELS as DS_MODELS  # noqa: F401
 DS_BASE_URL = "https://apic.dpdns.org"
-DS_MODELS = [
-    "gpt-5.4", "gpt-5.5",
-    "claude-opus-4-6", "claude-opus-4-7",
-]
 DEFAULT_MAX_TOKENS = 32768
 DEFAULT_TEMPERATURE = 0.7
 

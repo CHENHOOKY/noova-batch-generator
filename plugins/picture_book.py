@@ -122,12 +122,8 @@ R_LG = 14
 R_XL = 24
 
 # 文本 API 默认
+from config.settings_manager import TEXT_MODELS as DS_MODELS  # noqa: E402
 DS_BASE_URL = "https://apic.dpdns.org"
-DS_MODELS = [
-    "deepseek-v4-pro", "deepseek-v4-flash",
-    "gpt5.5", "gpt5.4",
-    "claude-opus-4-6", "claude-opus-4-7",
-]
 DS_DEFAULT_MODEL = "deepseek-v4-pro"
 DS_MAX_TOKENS = 16384
 

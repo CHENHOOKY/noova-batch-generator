@@ -19,12 +19,12 @@ DEFAULT_SETTINGS = {
 }
 
 TEXT_MODELS = [
-    "gpt5.5",
-    "gpt5.4",
+    "gpt-5.4",
+    "gpt-5.5",
     "claude-opus-4-6",
     "claude-opus-4-7",
-    "deepseek-v4-flash",
     "deepseek-v4-pro",
+    "deepseek-v4-flash",
 ]
 
 

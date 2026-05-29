@@ -75,14 +75,9 @@ C_GREEN = "#10B981"
 C_SEP = "#F0F0F3"
 
 # ═══════════════════════════════════════
-#  DeepSeek API 默认值
-# ═══════════════════════════════════════
+#  Text API 默认值
+from config.settings_manager import TEXT_MODELS as DS_MODELS  # noqa: F401
 DS_BASE_URL = "https://apic.dpdns.org"
-DS_MODELS = [
-    "deepseek-v4-pro", "deepseek-v4-flash",
-    "gpt5.5", "gpt5.4",
-    "claude-opus-4-6", "claude-opus-4-7",
-]
 DS_MAX_TOKENS = 16384
 
 # ═══════════════════════════════════════
