@@ -5,7 +5,7 @@ import os
 # ── DeepSeek API (文本推理) ──
 DS_BASE_URL = "https://apic.dpdns.org"
 DS_MODELS = [
-    "gpt5.5", "gpt5.4",
+    "gpt-5.4", "gpt-5.5",
     "claude-opus-4-6", "claude-opus-4-7",
 ]
 DEFAULT_MAX_TOKENS = 32768
