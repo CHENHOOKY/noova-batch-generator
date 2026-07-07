@@ -74,7 +74,9 @@ class FolderBatchDrawWorker(QThread):
 
     def __init__(self, api_key: str, groups: List[dict], output_dir: str,
                  model: str, aspect_ratio: str, image_size: str,
-                 poll_interval: int, concurrency: int):
+                 poll_interval: int, concurrency: int,
+                 global_fixed1: str = "", global_fixed2: str = "",
+                 output_mode: str = "prompt"):
         super().__init__()
         self.api_key = api_key
         self.groups = groups
@@ -84,6 +86,10 @@ class FolderBatchDrawWorker(QThread):
         self.image_size = image_size
         self.poll_interval = poll_interval
         self.concurrency = concurrency
+        self.global_fixed1 = global_fixed1
+        self.global_fixed2 = global_fixed2
+        self.output_mode = output_mode
+        self._run_ts = ""
         self.is_running = True
         self._executor = None
         self._lock = threading.Lock()
@@ -93,7 +99,9 @@ class FolderBatchDrawWorker(QThread):
     # ---- 单张图片处理 ----
 
     def _process_image(self, task: dict):
-        """处理单张图片：编码 → 提交 API → 轮询 → 下载"""
+        """处理单张图片：编码 → 提交 API → 轮询 → 下载
+        上传顺序：固定图1 → 固定图2 → 参考图
+        """
         if not self.is_running:
             return
 
@@ -101,6 +109,8 @@ class FolderBatchDrawWorker(QThread):
         image_path = task["image_path"]
         group_dir = task["group_dir"]
         group_idx = task["group_idx"]
+        fixed1 = task.get("fixed1", "")
+        fixed2 = task.get("fixed2", "")
         api = NoovaAPI(self.api_key)
 
         with self._lock:
@@ -112,11 +122,28 @@ class FolderBatchDrawWorker(QThread):
             f"\n[{idx}/{self._total}] 组{group_idx} | {fname}")
         self.log_msg.emit(f"  提示词: {prompt}")
 
-        # 1. 编码
+        # 1. 编码固定图和参考图（按上传顺序）
+        all_b64 = []
+        fixed_labels = []
+        if fixed1:
+            fixed_labels.append(("固定图1", fixed1))
+        if fixed2:
+            fixed_labels.append(("固定图2", fixed2))
+
+        for label, fpath in fixed_labels:
+            try:
+                b64 = api.local_file_to_base64(fpath, self.log_msg.emit)
+                all_b64.append(b64)
+                self.log_msg.emit(f"  📌 {label}: {os.path.basename(fpath)}")
+            except Exception as e:
+                self.log_msg.emit(f"  ⚠️ {label} 编码失败: {e}")
+
+        # 参考图
         try:
-            b64 = api.local_file_to_base64(image_path, self.log_msg.emit)
+            ref_b64 = api.local_file_to_base64(image_path, self.log_msg.emit)
+            all_b64.append(ref_b64)
         except Exception as e:
-            self.log_msg.emit(f"  ❌ 编码失败: {e}")
+            self.log_msg.emit(f"  ❌ 参考图编码失败: {e}")
             self.progress_update.emit(self._completed, self._total)
             return
 
@@ -126,7 +153,7 @@ class FolderBatchDrawWorker(QThread):
         # 2. 提交
         try:
             task_id, _ = api.create_draw_task(
-                self.model, prompt, self.aspect_ratio, self.image_size, [b64])
+                self.model, prompt, self.aspect_ratio, self.image_size, all_b64)
 
             # 3. 轮询
             result_data = api.poll_task_result(
@@ -172,14 +199,36 @@ class FolderBatchDrawWorker(QThread):
                     f"📂 {len(own_users)} 组使用自有文件夹，"
                     f"{len(default_users)} 组使用默认文件夹")
 
+            # 按时间+序号命名模式：本次运行共用一个时间戳
+            from datetime import datetime
+            self._run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if self.output_mode == "numbered":
+                self.log_msg.emit(f"🕐 输出模式：按时间+序号命名（时间戳 {self._run_ts}）")
+            elif self.output_mode == "flat":
+                self.log_msg.emit("📦 输出模式：不新建子文件夹，全部图片直接输出到输出根目录")
+
             # 展开为图片级任务
             all_tasks = []
             for gi, g in enumerate(valid_groups):
                 prompt = g["prompt"].strip()
                 folder = g["folder"].strip()
                 source_tag = "默认" if g.get("source") == "default" else "自有"
-                safe_name = sanitize_folder_name(prompt, f"group_{gi + 1}")
-                group_dir = make_unique_subdir(self.output_dir, safe_name)
+                # 输出目录优先级：组内单独指定 > 全局输出命名模式
+                custom_output = (g.get("output_dir") or "").strip()
+                if custom_output:
+                    group_dir = custom_output
+                    out_tag = "单独输出"
+                elif self.output_mode == "numbered":
+                    group_dir = os.path.join(
+                        self.output_dir, f"{self._run_ts}_{gi + 1}")
+                    out_tag = "时间序号"
+                elif self.output_mode == "flat":
+                    group_dir = self.output_dir
+                    out_tag = "直接输出"
+                else:
+                    safe_name = sanitize_folder_name(prompt, f"group_{gi + 1}")
+                    group_dir = make_unique_subdir(self.output_dir, safe_name)
+                    out_tag = "提示词命名"
 
                 images = scan_folder_images(folder)
                 if not images:
@@ -188,13 +237,26 @@ class FolderBatchDrawWorker(QThread):
                     continue
 
                 self.log_msg.emit(
-                    f"组{gi + 1} ({prompt}) [{source_tag}]: 发现 {len(images)} 张图片 → 输出至 {group_dir}")
+                    f"组{gi + 1} ({prompt}) [{source_tag}/{out_tag}]: 发现 {len(images)} 张图片 → 输出至 {group_dir}")
+
+                # 固定图：组内自选优先，否则用全局
+                g_fixed1 = g.get("fixed1", "") or self.global_fixed1
+                g_fixed2 = g.get("fixed2", "") or self.global_fixed2
+                if g_fixed1:
+                    source_f1 = "组内" if g.get("fixed1", "") else "全局"
+                    self.log_msg.emit(f"  📌 固定图1({source_f1}): {os.path.basename(g_fixed1)}")
+                if g_fixed2:
+                    source_f2 = "组内" if g.get("fixed2", "") else "全局"
+                    self.log_msg.emit(f"  📌 固定图2({source_f2}): {os.path.basename(g_fixed2)}")
+
                 for img_path in images:
                     all_tasks.append({
                         "prompt": prompt,
                         "image_path": img_path,
                         "group_dir": group_dir,
                         "group_idx": gi + 1,
+                        "fixed1": g_fixed1,
+                        "fixed2": g_fixed2,
                     })
 
             self._total = len(all_tasks)
@@ -261,7 +323,13 @@ class FolderBatchDrawPlugin(BasePlugin):
         self.group_prompts: List[QLineEdit] = []
         self.group_folder_labels: List[QLabel] = []
         self.group_folder_paths: List[str] = [""] * GROUP_COUNT
+        self.group_fixed1_labels: List[QLabel] = []
+        self.group_fixed1_paths: List[str] = [""] * GROUP_COUNT
+        self.group_fixed2_labels: List[QLabel] = []
+        self.group_fixed2_paths: List[str] = [""] * GROUP_COUNT
         self.group_cards: List[QFrame] = []
+        self.group_output_labels: List[QLabel] = []
+        self.group_output_paths: List[str] = [""] * GROUP_COUNT
 
     # ---- 工作区 UI ----
 
@@ -397,6 +465,21 @@ class FolderBatchDrawPlugin(BasePlugin):
         out_row.addWidget(self.btn_output)
         out_row.addWidget(self.output_label, 1)
         out_inner.addLayout(out_row)
+
+        # 输出命名模式
+        mode_lbl = QLabel("输出命名模式")
+        mode_lbl.setStyleSheet(
+            "font-size: 12px; color: #6B7280; background: transparent;")
+        out_inner.addWidget(mode_lbl)
+
+        self.combo_output_mode = QComboBox()
+        self.combo_output_mode.addItems([
+            "按提示词命名（默认）",
+            "按时间+序号命名",
+            "不新建子文件夹（全部放一起）",
+        ])
+        self.combo_output_mode.setStyleSheet(COMBO_STYLE)
+        out_inner.addWidget(self.combo_output_mode)
 
         left_col.addWidget(out_card)
 
@@ -558,6 +641,74 @@ class FolderBatchDrawPlugin(BasePlugin):
         bot_row.addWidget(folder_label, 1)
         inner.addLayout(bot_row)
 
+        # 固定图行
+        fixed_row = QHBoxLayout()
+        fixed_row.setSpacing(8)
+        fixed_row.addSpacing(38)  # 对齐徽章宽度
+
+        fixed1_btn = QPushButton("📌 固定图1")
+        fixed1_btn.setStyleSheet("""
+            QPushButton { background: #F8F9FA; border: 1px dashed #D1D5DB;
+                border-radius: 8px; padding: 5px 10px; font-size: 11px; color: #666; }
+            QPushButton:hover { background: #FFF7ED; border-color: #F97316; color: #F97316; }
+        """)
+        fixed1_btn.setCursor(Qt.PointingHandCursor)
+        fixed1_btn.clicked.connect(
+            lambda checked=None, idx=index: self._select_fixed1(idx))
+        fixed_row.addWidget(fixed1_btn)
+
+        fixed1_label = QLabel("—")
+        fixed1_label.setStyleSheet(
+            "color: #BBB; font-size: 11px; background: transparent;")
+        fixed1_label.setWordWrap(True)
+        self.group_fixed1_labels.append(fixed1_label)
+        fixed_row.addWidget(fixed1_label, 1)
+
+        fixed2_btn = QPushButton("📌 固定图2")
+        fixed2_btn.setStyleSheet("""
+            QPushButton { background: #F8F9FA; border: 1px dashed #D1D5DB;
+                border-radius: 8px; padding: 5px 10px; font-size: 11px; color: #666; }
+            QPushButton:hover { background: #FFF7ED; border-color: #F97316; color: #F97316; }
+        """)
+        fixed2_btn.setCursor(Qt.PointingHandCursor)
+        fixed2_btn.clicked.connect(
+            lambda checked=None, idx=index: self._select_fixed2(idx))
+        fixed_row.addWidget(fixed2_btn)
+
+        fixed2_label = QLabel("—")
+        fixed2_label.setStyleSheet(
+            "color: #BBB; font-size: 11px; background: transparent;")
+        fixed2_label.setWordWrap(True)
+        self.group_fixed2_labels.append(fixed2_label)
+        fixed_row.addWidget(fixed2_label, 1)
+
+        inner.addLayout(fixed_row)
+
+        # 输出目录行（可选：为该组指定单独输出文件夹，不选则用全局输出目录）
+        out_row = QHBoxLayout()
+        out_row.setSpacing(8)
+        out_row.addSpacing(38)  # 对齐徽章宽度
+
+        output_btn = QPushButton("📂 单独输出目录")
+        output_btn.setStyleSheet("""
+            QPushButton { background: #F8F9FA; border: 1px dashed #D1D5DB;
+                border-radius: 8px; padding: 5px 10px; font-size: 11px; color: #666; }
+            QPushButton:hover { background: #F5F3FF; border-color: #8B5CF6; color: #8B5CF6; }
+        """)
+        output_btn.setCursor(Qt.PointingHandCursor)
+        output_btn.clicked.connect(
+            lambda checked=None, idx=index: self._select_output_folder(idx))
+        out_row.addWidget(output_btn)
+
+        output_label = QLabel("未选择（用全局输出目录）")
+        output_label.setStyleSheet(
+            "color: #BBB; font-size: 11px; background: transparent;")
+        output_label.setWordWrap(True)
+        self.group_output_labels.append(output_label)
+        out_row.addWidget(output_label, 1)
+
+        inner.addLayout(out_row)
+
         return card
 
     # ---- 事件处理 ----
@@ -604,6 +755,35 @@ class FolderBatchDrawPlugin(BasePlugin):
                 }}
             """)
 
+    def _select_fixed1(self, index: int):
+        path, _ = QFileDialog.getOpenFileName(
+            self.main_window, f"选择第{index + 1}组固定图1", "",
+            "图片文件 (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if path:
+            self.group_fixed1_paths[index] = path
+            self.group_fixed1_labels[index].setText(f"✅ {os.path.basename(path)}")
+            self.group_fixed1_labels[index].setStyleSheet(
+                "color: #10B981; font-size: 11px; background: transparent;")
+
+    def _select_fixed2(self, index: int):
+        path, _ = QFileDialog.getOpenFileName(
+            self.main_window, f"选择第{index + 1}组固定图2", "",
+            "图片文件 (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if path:
+            self.group_fixed2_paths[index] = path
+            self.group_fixed2_labels[index].setText(f"✅ {os.path.basename(path)}")
+            self.group_fixed2_labels[index].setStyleSheet(
+                "color: #10B981; font-size: 11px; background: transparent;")
+
+    def _select_output_folder(self, index: int):
+        folder = QFileDialog.getExistingDirectory(
+            self.main_window, f"选择第{index + 1}组的单独输出目录")
+        if folder:
+            self.group_output_paths[index] = folder
+            self.group_output_labels[index].setText(f"✅ {folder}")
+            self.group_output_labels[index].setStyleSheet(
+                "color: #8B5CF6; font-size: 11px; background: transparent;")
+
     def _select_default_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self.main_window, "选择默认参考图文件夹")
         if folder:
@@ -645,7 +825,16 @@ class FolderBatchDrawPlugin(BasePlugin):
             else:
                 folder = ""
                 source = ""
-            groups.append({"prompt": prompt, "folder": folder, "source": source})
+            # 固定图：优先用组内自选的，否则用全局的
+            fixed1 = self.group_fixed1_paths[i]
+            fixed2 = self.group_fixed2_paths[i]
+            # 输出目录：组内单独指定优先，否则用全局输出根目录
+            output_dir = self.group_output_paths[i]
+            groups.append({
+                "prompt": prompt, "folder": folder, "source": source,
+                "fixed1": fixed1, "fixed2": fixed2,
+                "output_dir": output_dir,
+            })
 
         valid = [g for g in groups if g["prompt"] and g["folder"]]
         if not valid:
@@ -664,9 +853,17 @@ class FolderBatchDrawPlugin(BasePlugin):
         poll_interval = self.spin_poll.value()
         concurrency = self.spin_concurrency.value()
 
+        sm = self.main_window.settings_manager
+        global_fixed1 = sm.get_fixed_image_1_path()
+        global_fixed2 = sm.get_fixed_image_2_path()
+
+        _mode_idx = self.combo_output_mode.currentIndex()
+        output_mode = {0: "prompt", 1: "numbered", 2: "flat"}.get(_mode_idx, "prompt")
+
         self._worker = FolderBatchDrawWorker(
             api_key, groups, self.output_path, model, ar, size,
-            poll_interval, concurrency)
+            poll_interval, concurrency, global_fixed1, global_fixed2,
+            output_mode=output_mode)
         self._worker.log_msg.connect(self.main_window.monitor_log)
         self._worker.progress_update.connect(self.main_window.monitor_progress)
         self._worker.finished_task.connect(self._on_worker_finished)

@@ -1,8 +1,11 @@
 """设置对话框 — 集中管理视觉/文本 API Key"""
 
+import os
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFrame, QComboBox, QWidget, QScrollArea,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt
 
@@ -55,6 +58,12 @@ class SettingsDialog(QDialog):
         # ── 文本模型 API ──
         lo.addWidget(self._section_header("文本模型 API（PPT / 脚本 / 文案生成）"))
         lo.addWidget(self._build_text_section())
+
+        lo.addSpacing(8)
+
+        # ── 全局固定图 ──
+        lo.addWidget(self._section_header("全局固定图（文件夹批量出图）"))
+        lo.addWidget(self._build_fixed_images_section())
 
         lo.addSpacing(16)
 
@@ -164,7 +173,109 @@ class SettingsDialog(QDialog):
 
         return card
 
-    # ── 辅助 ──────────────────────────────────
+    # ── 全局固定图区域 ─────────────────────────
+
+    def _build_fixed_images_section(self) -> QFrame:
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background: {C_CARD_BG}; border: 1px solid {C_CARD_BDR};"
+            f" border-radius: 14px; }}")
+        lo = QVBoxLayout(card)
+        lo.setContentsMargins(20, 16, 20, 16)
+        lo.setSpacing(10)
+
+        hint = QLabel("为所有组设置默认固定图，各组可选择单独覆盖")
+        hint.setStyleSheet(
+            f"font-size: 12px; color: {C_TEXT_SUB}; background: transparent;")
+        lo.addWidget(hint)
+
+        # 固定图1
+        row1 = QHBoxLayout()
+        row1.setSpacing(10)
+        lbl1 = QLabel("固定图1")
+        lbl1.setStyleSheet(
+            f"font-size: 13px; font-weight: 600; color: {C_TEXT}; background: transparent;")
+        lbl1.setFixedWidth(60)
+        row1.addWidget(lbl1)
+
+        self._fixed1_btn = QPushButton("选择图片...")
+        self._fixed1_btn.setStyleSheet(self._btn_style(False))
+        self._fixed1_btn.setCursor(Qt.PointingHandCursor)
+        self._fixed1_btn.clicked.connect(self._select_fixed1)
+        row1.addWidget(self._fixed1_btn)
+
+        self._fixed1_label = QLabel("未选择")
+        self._fixed1_label.setStyleSheet(
+            f"font-size: 12px; color: {C_TEXT_SUB}; background: transparent;")
+        self._fixed1_label.setWordWrap(True)
+        row1.addWidget(self._fixed1_label, 1)
+        lo.addLayout(row1)
+
+        # 固定图2
+        row2 = QHBoxLayout()
+        row2.setSpacing(10)
+        lbl2 = QLabel("固定图2")
+        lbl2.setStyleSheet(
+            f"font-size: 13px; font-weight: 600; color: {C_TEXT}; background: transparent;")
+        lbl2.setFixedWidth(60)
+        row2.addWidget(lbl2)
+
+        self._fixed2_btn = QPushButton("选择图片...")
+        self._fixed2_btn.setStyleSheet(self._btn_style(False))
+        self._fixed2_btn.setCursor(Qt.PointingHandCursor)
+        self._fixed2_btn.clicked.connect(self._select_fixed2)
+        row2.addWidget(self._fixed2_btn)
+
+        self._fixed2_label = QLabel("未选择")
+        self._fixed2_label.setStyleSheet(
+            f"font-size: 12px; color: {C_TEXT_SUB}; background: transparent;")
+        self._fixed2_label.setWordWrap(True)
+        row2.addWidget(self._fixed2_label, 1)
+        lo.addLayout(row2)
+
+        clear_row = QHBoxLayout()
+        clear_row.addStretch()
+        clear_btn = QPushButton("清除全局固定图")
+        clear_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; color: #EF4444;"
+            " font-size: 12px; padding: 4px 8px; }"
+            "QPushButton:hover { color: #DC2626; text-decoration: underline; }")
+        clear_btn.setCursor(Qt.PointingHandCursor)
+        clear_btn.clicked.connect(self._clear_fixed_images)
+        clear_row.addWidget(clear_btn)
+        lo.addLayout(clear_row)
+
+        return card
+
+    def _select_fixed1(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择全局固定图1", "",
+            "图片文件 (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if path:
+            self._fixed1_path = path
+            self._fixed1_label.setText(os.path.basename(path))
+            self._fixed1_label.setStyleSheet(
+                "font-size: 12px; color: #10B981; background: transparent;")
+
+    def _select_fixed2(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择全局固定图2", "",
+            "图片文件 (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if path:
+            self._fixed2_path = path
+            self._fixed2_label.setText(os.path.basename(path))
+            self._fixed2_label.setStyleSheet(
+                "font-size: 12px; color: #10B981; background: transparent;")
+
+    def _clear_fixed_images(self):
+        self._fixed1_path = ""
+        self._fixed2_path = ""
+        self._fixed1_label.setText("未选择")
+        self._fixed1_label.setStyleSheet(
+            f"font-size: 12px; color: {C_TEXT_SUB}; background: transparent;")
+        self._fixed2_label.setText("未选择")
+        self._fixed2_label.setStyleSheet(
+            f"font-size: 12px; color: {C_TEXT_SUB}; background: transparent;")
 
     def _section_header(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -202,8 +313,21 @@ class SettingsDialog(QDialog):
         self._vis_key_input.setText(self._sm.get_visual_key())
         self._txt_key_input.setText(self._sm.get_text_key())
 
+        self._fixed1_path = self._sm.get_fixed_image_1_path()
+        self._fixed2_path = self._sm.get_fixed_image_2_path()
+        if self._fixed1_path:
+            self._fixed1_label.setText(os.path.basename(self._fixed1_path))
+            self._fixed1_label.setStyleSheet(
+                "font-size: 12px; color: #10B981; background: transparent;")
+        if self._fixed2_path:
+            self._fixed2_label.setText(os.path.basename(self._fixed2_path))
+            self._fixed2_label.setStyleSheet(
+                "font-size: 12px; color: #10B981; background: transparent;")
+
     def _on_save(self):
         self._sm.set_visual_key(self._vis_key_input.text().strip())
         self._sm.set_text_key(self._txt_key_input.text().strip())
+        self._sm.set_fixed_image_1_path(getattr(self, '_fixed1_path', ''))
+        self._sm.set_fixed_image_2_path(getattr(self, '_fixed2_path', ''))
         self._sm.save()
         self.accept()

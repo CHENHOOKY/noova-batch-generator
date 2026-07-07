@@ -18,12 +18,17 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QStackedWidget, QScrollArea, QGridLayout,
-    QProgressBar, QTextEdit, QButtonGroup,
+    QProgressBar, QTextEdit, QButtonGroup, QFrame,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QIcon, QPixmap
 
 from plugin_base import BasePlugin
+from plugins._design import (
+    C_BG, C_SIDEBAR_BG, C_SIDEBAR_BDR, C_CARD_BG, C_CARD_BDR,
+    C_PRIMARY, C_PRIMARY_HV, C_PRIMARY_SOFT, C_TEXT, C_TEXT_SUB, C_TEXT_MUTED,
+    C_GREEN, C_DANGER, R_SM, R_MD, R_LG, R_XL, make_chip, with_alpha,
+)
 
 
 def _resource_path(relative: str) -> str:
@@ -34,24 +39,8 @@ def _resource_path(relative: str) -> str:
         base = Path(__file__).parent
     return str(base / relative)
 
-# ═══════════════════════  Design Tokens  ═══════════════════════
-C_BG          = "#F8F9FC"
-C_SIDEBAR_BG  = "#FFFFFF"
-C_SIDEBAR_BDR = "#F0F0F3"
-C_CARD_BG     = "#FFFFFF"
-C_CARD_BDR    = "#ECEDF0"
-C_PRIMARY     = "#6366F1"
-C_PRIMARY_HV  = "#4F46E5"
-C_TEXT        = "#1E1E2E"
-C_TEXT_SUB    = "#6B7280"
-C_TEXT_MUTED  = "#9CA3AF"
-C_GREEN       = "#10B981"
-C_DANGER      = "#EF4444"
-
-R_SM  = 8
-R_MD  = 12
-R_LG  = 16
-R_XL  = 24
+# 设计令牌（颜色 / 圆角 / 字体）统一由 plugins/_design.py 提供，此处仅引用。
+# 详见 plugins/_design.py —— 应用的「单一设计真相源」。
 
 class ModernAppShell(QMainWindow):
     """主程序壳 —— 管理整体布局、插件路由、共享监控台"""
@@ -93,7 +82,7 @@ class ModernAppShell(QMainWindow):
             " border-right: 1px solid " + C_SIDEBAR_BDR + "; }"
             # 侧边栏导航按钮
             "QPushButton#NavBtn {"
-            " text-align: left; padding: 10px 16px; border: none;"
+            " text-align: left; padding: 11px 18px; border: none;"
             " border-left: 3px solid transparent;"
             " border-radius: 0 " + str(R_SM) + "px " + str(R_SM) + "px 0;"
             " font-size: 14px; color: " + C_TEXT_SUB + "; font-weight: 500; }"
@@ -145,21 +134,53 @@ class ModernAppShell(QMainWindow):
         # --- 侧边栏 ---
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(240)
+        sidebar.setFixedWidth(244)
         side_layout = QVBoxLayout(sidebar)
-        side_layout.setContentsMargins(16, 28, 16, 28)
+        side_layout.setContentsMargins(16, 26, 16, 22)
         side_layout.setSpacing(6)
 
-        logo = QLabel("Noova AI")
-        logo.setStyleSheet(
-            "font-size: 20px; font-weight: 800; color: " + C_TEXT + ";"
-            " padding: 0 10px 24px 10px; background: transparent;")
-        side_layout.addWidget(logo)
+        # 品牌区：图标 + 名称 + 标语
+        brand = QWidget()
+        brand.setStyleSheet("background: transparent;")
+        brand_lo = QHBoxLayout(brand)
+        brand_lo.setContentsMargins(10, 0, 0, 22)
+        brand_lo.setSpacing(12)
+
+        logo_lbl = QLabel()
+        logo_pix = QPixmap(_resource_path("logo.ico"))
+        if not logo_pix.isNull():
+            logo_lbl.setPixmap(logo_pix.scaled(
+                38, 38, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            logo_lbl.setText("N")
+            logo_lbl.setAlignment(Qt.AlignCenter)
+            logo_lbl.setStyleSheet(
+                "font-size: 20px; font-weight: 800; color: #FFFFFF;"
+                " background: " + C_PRIMARY + "; border-radius: 10px;")
+        logo_lbl.setFixedSize(40, 40)
+        brand_lo.addWidget(logo_lbl, 0, Qt.AlignVCenter)
+
+        name_box = QVBoxLayout()
+        name_box.setContentsMargins(0, 0, 0, 0)
+        name_box.setSpacing(0)
+        name = QLabel("Noova AI")
+        name.setStyleSheet(
+            "font-size: 18px; font-weight: 800; color: " + C_TEXT + ";"
+            " background: transparent; letter-spacing: 0.5px;")
+        tag = QLabel("AI 创意套件")
+        tag.setStyleSheet(
+            "font-size: 11px; color: " + C_TEXT_MUTED + ";"
+            " background: transparent; margin-top: 2px;")
+        name_box.addWidget(name)
+        name_box.addWidget(tag)
+        brand_lo.addLayout(name_box)
+        brand_lo.addStretch()
+        side_layout.addWidget(brand)
 
         self._nav_group = QButtonGroup()
         self._nav_group.setExclusive(True)
 
-        self.nav_home = QPushButton("    Noova应用")
+        self.nav_home = QPushButton("🏠  应用首页")
         self.nav_home.setObjectName("NavBtn")
         self.nav_home.setCheckable(True)
         self.nav_home.setChecked(True)
@@ -172,13 +193,14 @@ class ModernAppShell(QMainWindow):
         self._nav_plugin_section = QWidget()
         self._nav_plugin_section.setVisible(False)
         plugin_nav_layout = QVBoxLayout(self._nav_plugin_section)
-        plugin_nav_layout.setContentsMargins(0, 6, 0, 4)
+        plugin_nav_layout.setContentsMargins(0, 8, 0, 4)
         plugin_nav_layout.setSpacing(2)
 
-        self._nav_plugin_sep = QLabel("  已打开")
+        self._nav_plugin_sep = QLabel("已打开")
         self._nav_plugin_sep.setStyleSheet(
-            "color: " + C_TEXT_MUTED + "; font-size: 11px; font-weight: 500;"
-            " padding: 4px 10px 2px 10px; background: transparent;")
+            "color: " + C_TEXT_MUTED + "; font-size: 11px; font-weight: 600;"
+            " letter-spacing: 1px; padding: 4px 10px 2px 10px;"
+            " background: transparent;")
         plugin_nav_layout.addWidget(self._nav_plugin_sep)
 
         self._plugin_btn_container = QVBoxLayout()
@@ -187,7 +209,7 @@ class ModernAppShell(QMainWindow):
         side_layout.addWidget(self._nav_plugin_section)
 
         # 监控台导航（初始隐藏）
-        self.nav_monitor = QPushButton("   运行监控台")
+        self.nav_monitor = QPushButton("📊  运行监控台")
         self.nav_monitor.setObjectName("NavBtn")
         self.nav_monitor.setCheckable(True)
         self.nav_monitor.setVisible(False)
@@ -199,16 +221,22 @@ class ModernAppShell(QMainWindow):
 
         side_layout.addStretch()
 
-        self.btn_settings = QPushButton("    ⚙️ 设置")
+        # 底部分隔线
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background: " + C_SIDEBAR_BDR + "; border: none;")
+        side_layout.addWidget(sep)
+
+        self.btn_settings = QPushButton("⚙  设置")
         self.btn_settings.setObjectName("NavBtn")
         self.btn_settings.setCheckable(False)
         self.btn_settings.setCursor(Qt.PointingHandCursor)
         self.btn_settings.clicked.connect(self._show_settings)
         side_layout.addWidget(self.btn_settings)
 
-        ver = QLabel("v" + __version__)
+        ver = QLabel("Noova AI  ·  v" + __version__)
         ver.setStyleSheet(
-            "color: " + C_TEXT_MUTED + "; font-size: 12px; padding-left: 10px;"
+            "color: " + C_TEXT_MUTED + "; font-size: 11px; padding-left: 10px;"
             " background: transparent;")
         side_layout.addWidget(ver)
 
@@ -293,7 +321,7 @@ class ModernAppShell(QMainWindow):
 
             ws_index = self._plugins.index(plugin) + 1
 
-            nav_btn = QPushButton("    " + plugin.icon + "  " + plugin.name)
+            nav_btn = QPushButton(plugin.icon + "  " + plugin.name)
             nav_btn.setObjectName("NavBtn")
             nav_btn.setCheckable(True)
             nav_btn.setCursor(Qt.PointingHandCursor)
@@ -325,33 +353,53 @@ class ModernAppShell(QMainWindow):
         hero.setStyleSheet(
             "QWidget#Hero {"
             " background: qlineargradient(x1:0, y1:0, x2:1, y2:1,"
-            " stop:0 #2D2B55, stop:0.35 #1E1E3A, stop:1 #0F3460);"
+            " stop:0 #312E81, stop:0.45 #1E1B4B, stop:1 #0F3460);"
             " border-radius: " + str(R_XL) + "px; }")
         hero.setObjectName("Hero")
-        hero.setFixedHeight(190)
+        hero.setFixedHeight(214)
         hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(44, 38, 44, 38)
+        hero_layout.setContentsMargins(44, 34, 44, 30)
+        hero_layout.setSpacing(6)
 
         hero_title = QLabel("你好，我是 Noova 助手")
         hero_title.setStyleSheet(
-            "font-size: 32px; font-weight: 800; color: #FFFFFF;"
+            "font-size: 30px; font-weight: 800; color: #FFFFFF;"
             " background: transparent; letter-spacing: 1px;")
         hero_sub = QLabel("AI 图像生成平台  ·  批量处理  ·  高效创作")
         hero_sub.setStyleSheet(
-            "font-size: 15px; color: rgba(255,255,255,0.65);"
-            " background: transparent; margin-top: 6px;")
+            "font-size: 15px; color: rgba(255,255,255,0.72);"
+            " background: transparent;")
         hero_layout.addWidget(hero_title)
         hero_layout.addWidget(hero_sub)
+
+        # 能力胶囊
+        chip_row = QHBoxLayout()
+        chip_row.setSpacing(10)
+        chip_row.setContentsMargins(0, 12, 0, 0)
+        chip_row.addWidget(make_chip(f"🧩  {len(self._plugins)} 个功能插件"))
+        chip_row.addWidget(make_chip("⚡  批量并发处理"))
+        chip_row.addWidget(make_chip("🔒  本地安全运行"))
+        chip_row.addStretch()
+        hero_layout.addLayout(chip_row)
         hero_layout.addStretch()
         layout.addWidget(hero)
-        layout.addSpacing(40)
+        layout.addSpacing(36)
 
         # 功能服务
+        sec_row = QHBoxLayout()
+        sec_row.setContentsMargins(0, 0, 0, 0)
         sec_label = QLabel("功能服务")
         sec_label.setStyleSheet(
             "font-size: 20px; font-weight: 700; color: " + C_TEXT + ";"
             " background: transparent;")
-        layout.addWidget(sec_label)
+        sec_row.addWidget(sec_label)
+        sec_row.addStretch()
+        count_lbl = QLabel(f"共 {len(self._plugins)} 个")
+        count_lbl.setStyleSheet(
+            "font-size: 13px; color: " + C_TEXT_MUTED + ";"
+            " background: transparent;")
+        sec_row.addWidget(count_lbl)
+        layout.addLayout(sec_row)
         layout.addSpacing(20)
 
         # 插件卡片网格
@@ -395,36 +443,45 @@ class ModernAppShell(QMainWindow):
         layout.setContentsMargins(60, 56, 60, 56)
 
         header = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(4)
         title = QLabel("运行监控台")
         title.setStyleSheet(
             "font-size: 28px; font-weight: 700; color: " + C_TEXT + ";"
             " background: transparent;")
+        sub = QLabel("实时查看任务进度与运行日志")
+        sub.setStyleSheet(
+            "font-size: 14px; color: " + C_TEXT_SUB + ";"
+            " background: transparent;")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        header.addLayout(title_box)
+        header.addStretch()
 
-        self.btn_stop = QPushButton("   终止任务")
+        self.btn_stop = QPushButton("⏹  终止任务")
         self.btn_stop.setStyleSheet(
             "background-color: " + C_DANGER + "; color: white;"
             " border-radius: " + str(R_SM) + "px; padding: 10px 20px;"
-            " border: none; font-size: 14px; font-weight: 500;")
+            " border: none; font-size: 14px; font-weight: 600;")
         self.btn_stop.setCursor(Qt.PointingHandCursor)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
         self.btn_stop.hide()
-
-        header.addWidget(title)
-        header.addStretch()
         header.addWidget(self.btn_stop)
         layout.addLayout(header)
-        layout.addSpacing(24)
+        layout.addSpacing(22)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("MonitorProgress")
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedHeight(10)
         layout.addWidget(self.progress_bar)
-        layout.addSpacing(16)
+        layout.addSpacing(14)
 
         self.log_area = QTextEdit()
         self.log_area.setObjectName("MonitorLog")
         self.log_area.setReadOnly(True)
+        self.log_area.setPlaceholderText("运行任务后，进度与日志将在此实时显示…")
         layout.addWidget(self.log_area)
 
         self.stacked_widget.addWidget(page)

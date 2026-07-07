@@ -38,6 +38,7 @@ credentials.json
 # ======================
 # 项目特定
 # ======================
+node_modules/
 .noova_extracted_images/
 output/
 *.exe

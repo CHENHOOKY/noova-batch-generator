@@ -16,6 +16,8 @@ DEFAULT_SETTINGS = {
     "visual_base_url": "https://noova.cn",
     "text_api_key": "",
     "text_base_url": "https://apic.dpdns.org",
+    "fixed_image_1_path": "",
+    "fixed_image_2_path": "",
 }
 
 TEXT_MODELS = [
@@ -85,6 +87,12 @@ class SettingsManager(QObject):
     def has_text_key(self) -> bool:
         return bool(self._data.get("text_api_key", ""))
 
+    def get_fixed_image_1_path(self) -> str:
+        return self._data.get("fixed_image_1_path", "")
+
+    def get_fixed_image_2_path(self) -> str:
+        return self._data.get("fixed_image_2_path", "")
+
     # ── Setters ───────────────────────────────
 
     def set_visual_key(self, key: str):
@@ -92,6 +100,12 @@ class SettingsManager(QObject):
 
     def set_text_key(self, key: str):
         self._data["text_api_key"] = key
+
+    def set_fixed_image_1_path(self, path: str):
+        self._data["fixed_image_1_path"] = path
+
+    def set_fixed_image_2_path(self, path: str):
+        self._data["fixed_image_2_path"] = path
 
     # ── 只读模型列表 ────────────────────────────
 

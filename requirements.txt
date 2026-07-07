@@ -11,3 +11,8 @@ onnxruntime>=1.18
 python-pptx>=0.6.21
 svglib>=1.5.0
 reportlab>=4.0.0
+# Web 版后端依赖（本地 Web 应用架构）
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pywebview>=5.0
+websockets>=13.0
